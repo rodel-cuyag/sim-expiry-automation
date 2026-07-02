@@ -15,6 +15,7 @@ import datetime
 import sys
 
 from src import config, preprocessing, call_detail, eod_report, excel_writer
+from src.data_loader import MissingInputFileError
 
 
 def parse_args():
@@ -59,4 +60,8 @@ def run(agent_id: int, report_date: datetime.date = None):
 if __name__ == "__main__":
     args = parse_args()
     parsed_date = datetime.datetime.strptime(args.date, "%Y-%m-%d").date() if args.date else None
-    run(agent_id=args.agent_id, report_date=parsed_date)
+    try:
+        run(agent_id=args.agent_id, report_date=parsed_date)
+    except MissingInputFileError as e:
+        print(e)
+        sys.exit(1)
