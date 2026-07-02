@@ -74,21 +74,19 @@ safer long-term maintenance — worth it even for a small script like this.
 
 ```
 sim_expiry_automation/
-├── data/                       # input CSVs go here
-│   ├── conversations.csv
-│   ├── kpi_results.csv
-│   └── twilio_webhook_events.csv
-├── output/                     # generated .xlsx reports land here
+├── data/                    → drop your 3 input CSVs here
+├── output/                  → generated Excel reports land here
 ├── src/
-│   ├── config.py                # all constants/paths — AGENT_ID lives here
-│   ├── data_loader.py           # reads raw CSVs, nothing else
-│   ├── preprocessing.py         # cleans, parses JSON, filters agent, joins 3 sources
-│   ├── call_detail.py           # builds the Call Detail Log sheet
-│   ├── eod_report.py            # builds the EOD Report sheet
-│   └── excel_writer.py          # writes both sheets to one formatted .xlsx
-├── main.py                      # CLI entry point — orchestrates the pipeline
-├── requirements.txt
-└── README.md
+│   ├── config.py             → all settings in one place (AGENT_ID, file paths, timezone)
+│   ├── data_loader.py        → reads the 3 CSVs off disk; checks they exist first and gives a clear error if not
+│   ├── progress.py           → shows a spinning "loading..." animation in the terminal while CSVs load
+│   ├── preprocessing.py      → cleans the data, parses the JSON columns, filters to one agent, joins the 3 sources together
+│   ├── call_detail.py        → builds the "Call Detail Log" sheet (one row per call)
+│   └── eod_report.py         → builds the "EOD Report" sheet (daily summary numbers)
+│   └── excel_writer.py       → takes those two tables and writes the final formatted .xlsx
+├── main.py                   → the file you actually run; it calls everything above in order
+├── requirements.txt          → the 2 packages needed (pandas, openpyxl)
+└── README.md                 → setup instructions and known data caveats
 ```
 
 Each module has exactly one job, so you can swap any piece (e.g. point
