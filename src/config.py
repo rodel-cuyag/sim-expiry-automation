@@ -24,8 +24,11 @@ TWILIO_EVENTS_CSV = DATA_DIR / "twilio_webhook_events.csv"
 AGENT_ID = 1060
 
 # ── Output file ───────────────────────────────────────────────────
-# Filled in with the report date at runtime (see main.py)
-OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx"
+# Filled in with the report date(s) at runtime (see main.py).
+# Single-day runs (start == end) use the plain template; multi-day
+# ranges use the range template so the filename itself shows the span.
+OUTPUT_FILENAME_TEMPLATE_SINGLE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}.xlsx"
+OUTPUT_FILENAME_TEMPLATE_RANGE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}_to_{end_date}.xlsx"
 
 # ── Timezone ──────────────────────────────────────────────────────
 # Source timestamps are epoch millis (UTC). Plan requires PHT (UTC+8).
