@@ -8,36 +8,10 @@ the columns from the Globe SIM Expiry plan's call detail log template.
 import pandas as pd
 
 
-def _resolve_status(row) -> str:
-    """
-    Status priority: Twilio's detailed event status wins when present,
-    otherwise fall back to the coarse conversations.status field.
-
-    For agent_id = 1060 specifically, Twilio has 0 matching records today,
-    so this will fall back to conversations.status for ~100% of rows.
-    That's shown as-is (completed / in_progress / failed) rather than
-    guessed/remapped into Busy/No Answer/etc, since we have no data to
-    back that remap. Once Twilio coverage improves for this agent, this
-    function will automatically start using it with no code changes needed.
-    """
-    if pd.notna(row.get("twilio_final_status")):
-        return row["twilio_final_status"]
-    return row.get("status", "unknown")
-
-
-def _clean_contact_number(value):
-    """
-    contact_number arrives pre-corrupted in the source CSV as scientific
-    notation text (e.g. "6.39178E+11") — an artifact from being opened/
-    saved in Excel upstream before export. Parse through float -> int to
-    recover the real digits, since directly int()'ing the string fails.
-    """
-    if pd.isna(value):
-        return None
-    try:
-        return str(int(float(value)))
-    except (ValueError, TypeError):
-        return str(value)  # fallback: leave as-is if truly unparseable
+def _blank_if_missing(value):
+    """Turns NaN into a real Python None so openpyxl writes a blank cell
+    instead of the literal string 'nan'."""
+    return None if pd.isna(value) else value
 
 
 def _agreed_to_keep_sim(row):
@@ -52,13 +26,20 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
     """
     Transforms the merged working table into the final Call Detail Log
     DataFrame, ready to write to Excel.
+
+    Status: sourced ONLY from the Twilio call-progress journey
+    (twilio_final_status, derived in preprocessing.extract_twilio_details
+    from twilio_webhook_events.csv). There is intentionally no fallback
+    to conversations.status anymore — if a conversation_id has no
+    matching Twilio events, Status is left blank rather than guessed.
     """
     df = working_table.copy()
 
     log = pd.DataFrame({
         "Conversation ID": df["conversation_id"],
-        "Contact Number": df["contact_number"].apply(_clean_contact_number),
-        "Status": df.apply(_resolve_status, axis=1),
+        "Contact Number": df["contact_number_clean"],
+        "Contact Number Reliability": df["contact_number_reliability"],
+        "Status": df["twilio_final_status"].apply(_blank_if_missing),
         "Call Duration (sec)": df["call_duration_sec"],
         "Agreed to Keep SIM Active": df.apply(_agreed_to_keep_sim, axis=1),
         "Customer Disposition": df.get("customer_disposition", pd.Series(dtype=object)),
@@ -72,4 +53,4 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Call Time (PHT)": df["start_dt_pht"].dt.strftime("%H:%M:%S"),
     })
 
-    return log.sort_values("Call Time (PHT)").reset_index(drop=True)
+    return log.sort_values(["Call Date (PHT)", "Call Time (PHT)"]).reset_index(drop=True)

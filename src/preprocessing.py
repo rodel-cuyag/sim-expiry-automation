@@ -11,6 +11,7 @@ Join logic:
 """
 
 import json
+import re
 import pandas as pd
 from src import config
 
@@ -33,7 +34,22 @@ def filter_conversations_by_agent(conversations: pd.DataFrame, agent_id: int) ->
 def add_local_timestamps(conversations: pd.DataFrame) -> pd.DataFrame:
     """
     Convert epoch-millisecond UTC timestamps into PHT datetime columns.
-    Adds: start_dt_pht, end_dt_pht, call_date (date-only, used for EOD grouping).
+    Adds: start_dt_pht, end_dt_pht, call_date (date-only, used for EOD
+    grouping/date-range filtering), call_duration_sec.
+
+    start_timestamp is confirmed reliable — converts to a real, sane PHT
+    datetime and is what we use to bucket calls into a Call Date / the
+    --start-date/--end-date range.
+
+    end_timestamp converts to a technically-valid datetime too (the
+    epoch-ms math is fine), but the *values themselves* aren't
+    trustworthy as a real call-end moment: for this dataset, end_timestamp
+    is frequently identical to or earlier than start_timestamp (checked
+    across 1,402 rows with both fields populated — ~79% have zero diff,
+    ~20% have a *negative* diff of -20 to -30 million ms, and it doesn't
+    correlate at all with the real call length in call_logs). We still
+    compute end_dt_pht for visibility/audit purposes, but duration is
+    deliberately NOT derived from it — see extract_call_duration().
     """
     df = conversations.copy()
     df["start_dt_pht"] = (
@@ -61,10 +77,80 @@ def extract_call_duration(conversations: pd.DataFrame) -> pd.Series:
     """
     def duration_seconds(call_logs_json):
         logs = _safe_json_loads(call_logs_json)
+        # Some agents store call_logs as a list of turn-by-turn bot/user
+        # events rather than the {"metrics": {...}} dict shape agent 1060
+        # uses. Not this task's scope to parse that schema for duration —
+        # bail out to None (shown as blank) rather than crashing or guessing.
+        if not isinstance(logs, dict):
+            return None
         ms = logs.get("metrics", {}).get("total_duration_ms")
         return round(ms / 1000) if ms is not None else None
 
     return conversations["call_logs"].apply(duration_seconds)
+
+
+def clean_contact_number(raw_value):
+    """
+    Cleans a single contact_number value and reports how trustworthy the
+    result is. Returns (cleaned_number, reliability) where reliability is
+    a short human-readable label — never silently presented as complete
+    when it isn't.
+
+    Two corruption patterns show up in the source data:
+
+    1. Excel scientific notation, e.g. "6.39151E+11" (~95% of rows).
+       This happens *upstream*, before the CSV is exported — Excel only
+       keeps 5-6 significant digits in that notation, so the true
+       trailing digits of the phone number are permanently gone. We
+       reconstruct the zero-padded integer so it at least displays
+       cleanly (no more "E+11"), but we flag it as TRUNCATED rather than
+       pretending the padded zeros are real digits.
+
+    2. Plain, uncorrupted digit strings, e.g. "09176881179" or
+       "9151427721" (~4.5% of rows). These are genuinely complete — we
+       just normalize them to the full 63XXXXXXXXXX format.
+    """
+    if pd.isna(raw_value):
+        return None, "Missing"
+
+    v = str(raw_value).strip()
+
+    if "E+" in v.upper():
+        mantissa = v.upper().split("E+")[0]
+        sig_figs = len(mantissa.replace(".", "").replace("-", ""))
+        try:
+            full_digits = str(int(float(v)))
+        except (ValueError, TypeError):
+            return v, "Unparseable"
+        return (
+            full_digits,
+            f"TRUNCATED - only first {sig_figs} digits are real, "
+            f"rest lost upstream (Excel scientific-notation export)",
+        )
+
+    digits = re.sub(r"\D", "", v)
+    if len(digits) == 11 and digits.startswith("0"):
+        return "63" + digits[1:], "Complete"
+    if len(digits) == 10 and not digits.startswith("0"):
+        return "63" + digits, "Complete"
+    if len(digits) == 12 and digits.startswith("63"):
+        return digits, "Complete"
+    if digits:
+        return digits, "Complete - unexpected length, verify manually"
+    return v, "Unparseable"
+
+
+def add_clean_contact_numbers(conversations: pd.DataFrame) -> pd.DataFrame:
+    """Adds contact_number_clean / contact_number_reliability columns."""
+    df = conversations.copy()
+    if df.empty:
+        df["contact_number_clean"] = pd.Series(dtype=object)
+        df["contact_number_reliability"] = pd.Series(dtype=object)
+        return df
+    cleaned = df["contact_number"].apply(clean_contact_number)
+    df["contact_number_clean"] = cleaned.apply(lambda t: t[0])
+    df["contact_number_reliability"] = cleaned.apply(lambda t: t[1])
+    return df
 
 
 def extract_kpi_fields(kpi_results: pd.DataFrame, agent_id: int) -> pd.DataFrame:
@@ -96,34 +182,55 @@ def extract_kpi_fields(kpi_results: pd.DataFrame, agent_id: int) -> pd.DataFrame
     return flat[existing_cols]
 
 
-def extract_twilio_status(twilio_events: pd.DataFrame) -> pd.DataFrame:
+def extract_twilio_details(twilio_events: pd.DataFrame) -> pd.DataFrame:
     """
-    Flatten the Twilio 'event' JSON blob and derive the FINAL call status
-    per conversation_id (e.g. completed / no-answer / busy / failed).
+    Flattens the Twilio 'event' JSON blob per conversation_id into two
+    derived fields:
 
-    NOTE: For some agents, twilio_webhook_events.csv may have zero matching
-    conversation_ids (Twilio callbacks not wired up / not exported yet for
-    that agent). In that case this returns an empty-but-correctly-shaped
-    DataFrame, and downstream code falls back to conversations.status —
-    see call_detail.py.
+      - twilio_final_status: the terminal outcome of the call's Twilio
+        lifecycle (completed / no-answer / busy / failed). This is now
+        the ONLY source for the Call Detail Log's Status column — there
+        is no fallback to conversations.status. If a conversation_id
+        never appears in twilio_webhook_events.csv, twilio_final_status
+        stays null and the Status column is left blank downstream.
+
+      - twilio_contact_number: the clean, complete "To" number Twilio
+        recorded for the call. Used to backfill contact numbers that
+        arrived corrupted from conversations.csv, wherever a Twilio
+        match happens to exist.
+
+    NOTE: twilio_webhook_events.csv only has 128 rows and covers a
+    handful of agents — for agents with zero matching conversation_ids,
+    both derived fields are simply blank for every row of that agent.
+    That's expected, not a bug.
     """
     if twilio_events.empty:
-        return pd.DataFrame(columns=["conversation_id", "twilio_final_status"])
+        return pd.DataFrame(columns=["conversation_id", "twilio_final_status", "twilio_contact_number"])
 
-    def final_status(event_json: str) -> str:
+    def parse_row(event_json: str):
         events = _safe_json_loads(event_json)
         if not events:
-            return None
-        # event_json is a dict of {event_name: {...details}}; use the last
-        # meaningful lifecycle event as the "final" status.
-        priority = ["completed", "no-answer", "busy", "failed", "in-progress", "ringing", "initiated"]
-        for status in priority:
-            if status in events:
-                return status
-        return None
+            return pd.Series({"twilio_final_status": None, "twilio_contact_number": None})
 
-    result = twilio_events[["conversation_id"]].copy()
-    result["twilio_final_status"] = twilio_events["event"].apply(final_status)
+        # Terminal-status priority: only one of these ever appears
+        # alongside the in-flight stages (ringing/initiated/in-progress)
+        # in this data, so checking in this order reliably picks the
+        # actual outcome of the call.
+        priority = ["completed", "no-answer", "busy", "failed", "in-progress", "ringing", "initiated"]
+        final_status = next((status for status in priority if status in events), None)
+
+        # The "To" number is identical across every stage of a given
+        # call, so grab it from whichever stage is present.
+        contact_number = None
+        for stage_details in events.values():
+            if isinstance(stage_details, dict) and stage_details.get("To"):
+                contact_number = re.sub(r"\D", "", stage_details["To"])
+                break
+
+        return pd.Series({"twilio_final_status": final_status, "twilio_contact_number": contact_number})
+
+    parsed = twilio_events["event"].apply(parse_row)
+    result = pd.concat([twilio_events[["conversation_id"]].reset_index(drop=True), parsed.reset_index(drop=True)], axis=1)
     return result.drop_duplicates(subset="conversation_id")
 
 
@@ -140,11 +247,19 @@ def build_working_table(agent_id: int = None) -> pd.DataFrame:
 
     conversations = filter_conversations_by_agent(raw["conversations"], agent_id)
     conversations = add_local_timestamps(conversations)
+    conversations = add_clean_contact_numbers(conversations)
 
     kpi_flat = extract_kpi_fields(raw["kpi_results"], agent_id)
-    twilio_flat = extract_twilio_status(raw["twilio_events"])
+    twilio_flat = extract_twilio_details(raw["twilio_events"])
 
     merged = conversations.merge(kpi_flat, on="conversation_id", how="left")
     merged = merged.merge(twilio_flat, on="conversation_id", how="left")
+
+    # Backfill contact number from Twilio's "To" field wherever a match
+    # exists — this is a genuinely complete number, not a guess, so it
+    # overrides the (possibly truncated) conversations.csv value.
+    has_twilio_number = merged["twilio_contact_number"].notna()
+    merged.loc[has_twilio_number, "contact_number_clean"] = merged.loc[has_twilio_number, "twilio_contact_number"]
+    merged.loc[has_twilio_number, "contact_number_reliability"] = "Complete (recovered from Twilio)"
 
     return merged
