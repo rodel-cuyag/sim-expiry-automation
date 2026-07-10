@@ -30,40 +30,78 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
     dialed = len(range_log)
 
     # Status now comes exclusively from the Twilio call-progress journey
-    # (see call_detail.py) — completed / failed / no-answer / busy, or
-    # blank when no Twilio event matched the conversation_id at all.
-    connected = (range_log["Status"] == "completed").sum()
-    failed = (range_log["Status"] == "failed").sum()
-    no_answer = (range_log["Status"] == "no-answer").sum()
-    busy = (range_log["Status"] == "busy").sum()
+    # (see call_detail.py) and is mapped to display-friendly values:
+    # "Connected", "Failed", "No Answer", "Busy", etc.
+    connected = (range_log["Status"] == "Connected").sum()
+    failed = (range_log["Status"] == "Failed").sum()
+    no_answer = (range_log["Status"] == "No Answer").sum()
+    busy = (range_log["Status"] == "Busy").sum()
     unmatched = range_log["Status"].isna().sum()
 
-    agreed = (range_log["Agreed to Keep SIM Active"] == "Yes").sum()
+    # Count agreements ONLY from connected calls for accurate conversion rate
+    connected_calls = range_log[range_log["Status"] == "Connected"]
+    agreed = (connected_calls["Agreed to Keep SIM Active"] == "Yes").sum()
 
     connection_rate = round((connected / dialed) * 100, 1) if dialed else 0.0
     conversion_rate = round((agreed / connected) * 100, 1) if connected else 0.0
 
-    avg_duration = range_log["Call Duration (sec)"].dropna()
-    avg_duration = round(avg_duration.mean(), 1) if not avg_duration.empty else None
+    # Calculate durations
+    avg_duration_sec = range_log["Call Duration (sec)"].dropna()
+    avg_duration = round(avg_duration_sec.mean(), 1) if not avg_duration_sec.empty else None
+
+    total_duration_sec = avg_duration_sec.sum() if not avg_duration_sec.empty else 0
+    total_duration_min = round(total_duration_sec / 60, 1) if total_duration_sec else None
+
+    # Calculate retries queued (Failed, No Answer, Busy = need retry)
+    retries_queued = failed + no_answer + busy
 
     metrics = [
         ("Report Period", period_label),
         ("Days in Range", days_in_range),
         ("Agent ID", agent_id),
+        ("", ""),  # Blank row for readability
+
+        # Call Volume Metrics
+        ("Calls Dialed - Target", "[PLACEHOLDER - Set by team]"),
         ("Calls Dialed - Actual", dialed),
-        ("Calls Connected (Twilio status = completed)", connected),
-        ("Calls Failed (Twilio status = failed)", failed),
-        ("Calls No Answer (Twilio status = no-answer)", no_answer),
-        ("Calls Busy (Twilio status = busy)", busy),
-        ("Calls with No Twilio Match (Status blank)", unmatched),
+        ("Calls Connected", connected),
+        ("No Answer (all retries exhausted)", no_answer),
+        ("Busy", busy),
+        ("System Errors", "[PLACEHOLDER - Consult team]"),
+        ("", ""),  # Blank row
+
+        # Duration Metrics
+        ("Total Call Duration (minutes)", total_duration_min),
+        ("Avg. Call Duration - Connected (seconds)", avg_duration),
+        ("", ""),  # Blank row
+
+        # Conversion Metrics
         ("Connection Rate (Connected / Dialed)", f"{connection_rate}%"),
         ("Agreed to Keep SIM Active (count)", agreed),
         ("Conversion Rate (Agreed / Connected)", f"{conversion_rate}%"),
-        ("Avg. Call Duration - Connected (sec)", avg_duration),
-        # Left blank: no reliable source data yet for these plan-template rows.
-        ("LLM Inference Cost (USD)", "N/A - not in source data"),
-        ("Open P0 Issues", "N/A - not in source data"),
-        ("Open P1 Issues", "N/A - not in source data"),
+        ("Retries Queued for Tomorrow", retries_queued),
+        ("", ""),  # Blank row
+
+        # FINOPS Section
+        ("=== FINOPS ===", ""),
+        ("LLM Inference Cost (USD)", "[PLACEHOLDER - Consult team]"),
+        ("Total Daily Spend (USD)", "[PLACEHOLDER - Consult team]"),
+        ("", ""),  # Blank row
+
+        # ISSUES & CHANGES Section
+        ("=== ISSUES & CHANGES ===", ""),
+        ("Open P0 Issues", "[PLACEHOLDER - Consult team]"),
+        ("Open P1 Issues", "[PLACEHOLDER - Consult team]"),
+        ("Changes Deployed Today", "[PLACEHOLDER - Manual entry]"),
+        ("Changes Pending Approval for Tomorrow", "[PLACEHOLDER - Manual entry]"),
+        ("", ""),  # Blank row
+
+        # TOMORROW'S PLAN Section
+        ("=== TOMORROW'S PLAN ===", ""),
+        ("Target Call Volume", "[PLACEHOLDER - Manual entry]"),
+        ("Expected List from Globe (ETA)", "[PLACEHOLDER - Manual entry]"),
+        ("Calling Window", "9:00 AM - 7:00 PM PHT"),
+        ("Phase Gate Status", "[PLACEHOLDER - Manual entry]"),
     ]
 
     return pd.DataFrame(metrics, columns=["Metric", "Value"])

@@ -184,7 +184,7 @@ def extract_kpi_fields(kpi_results: pd.DataFrame, agent_id: int) -> pd.DataFrame
 
 def extract_twilio_details(twilio_events: pd.DataFrame) -> pd.DataFrame:
     """
-    Flattens the Twilio 'event' JSON blob per conversation_id into two
+    Flattens the Twilio 'event' JSON blob per conversation_id into three
     derived fields:
 
       - twilio_final_status: the terminal outcome of the call's Twilio
@@ -199,18 +199,26 @@ def extract_twilio_details(twilio_events: pd.DataFrame) -> pd.DataFrame:
         arrived corrupted from conversations.csv, wherever a Twilio
         match happens to exist.
 
+      - twilio_latest_sequence: the highest sequence number reached in
+        the call journey (0=initiated, 1=ringing, 2=busy/no-answer/in-progress,
+        3=completed). Indicates how far the call progressed.
+
     NOTE: twilio_webhook_events.csv only has 128 rows and covers a
     handful of agents — for agents with zero matching conversation_ids,
-    both derived fields are simply blank for every row of that agent.
+    all three derived fields are simply blank for every row of that agent.
     That's expected, not a bug.
     """
     if twilio_events.empty:
-        return pd.DataFrame(columns=["conversation_id", "twilio_final_status", "twilio_contact_number"])
+        return pd.DataFrame(columns=["conversation_id", "twilio_final_status", "twilio_contact_number", "twilio_latest_sequence"])
 
     def parse_row(event_json: str):
         events = _safe_json_loads(event_json)
         if not events:
-            return pd.Series({"twilio_final_status": None, "twilio_contact_number": None})
+            return pd.Series({
+                "twilio_final_status": None,
+                "twilio_contact_number": None,
+                "twilio_latest_sequence": None
+            })
 
         # Terminal-status priority: only one of these ever appears
         # alongside the in-flight stages (ringing/initiated/in-progress)
@@ -219,15 +227,31 @@ def extract_twilio_details(twilio_events: pd.DataFrame) -> pd.DataFrame:
         priority = ["completed", "no-answer", "busy", "failed", "in-progress", "ringing", "initiated"]
         final_status = next((status for status in priority if status in events), None)
 
-        # The "To" number is identical across every stage of a given
-        # call, so grab it from whichever stage is present.
+        # Find the latest sequence number (highest number = furthest stage reached)
+        latest_sequence = None
         contact_number = None
-        for stage_details in events.values():
-            if isinstance(stage_details, dict) and stage_details.get("To"):
-                contact_number = re.sub(r"\D", "", stage_details["To"])
-                break
 
-        return pd.Series({"twilio_final_status": final_status, "twilio_contact_number": contact_number})
+        for stage_details in events.values():
+            if isinstance(stage_details, dict):
+                # Extract contact number
+                if stage_details.get("To") and contact_number is None:
+                    contact_number = re.sub(r"\D", "", stage_details["To"])
+
+                # Track highest sequence number
+                seq = stage_details.get("SequenceNumber")
+                if seq is not None:
+                    try:
+                        seq_num = int(seq)
+                        if latest_sequence is None or seq_num > latest_sequence:
+                            latest_sequence = seq_num
+                    except (ValueError, TypeError):
+                        pass
+
+        return pd.Series({
+            "twilio_final_status": final_status,
+            "twilio_contact_number": contact_number,
+            "twilio_latest_sequence": latest_sequence
+        })
 
     parsed = twilio_events["event"].apply(parse_row)
     result = pd.concat([twilio_events[["conversation_id"]].reset_index(drop=True), parsed.reset_index(drop=True)], axis=1)
