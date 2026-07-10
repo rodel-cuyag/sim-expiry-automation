@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import sys
+from datetime import datetime
 
 import pandas as pd
 
@@ -93,7 +94,7 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
         filename = config.OUTPUT_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
     else:
         filename = config.OUTPUT_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
-    output_path = config.EOD_OUTPUT_DIR / filename
+    output_path = excel_writer.resolve_output_path(config.EOD_OUTPUT_DIR / filename)
     excel_writer.write_report(eod_df, range_detail_log, output_path)
 
     print(f"EOD report generated: {output_path}")
@@ -152,8 +153,9 @@ def run_priority_list(as_of_date=None, input_path=None):
 
     # 5. Write Priority List (valid records only).
     config.CUSTOMER_LIST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=as_of_date)
-    priority_path = config.CUSTOMER_LIST_OUTPUT_DIR / filename
+    now_date = datetime.now().date()
+    filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
+    priority_path = excel_writer.resolve_output_path(config.CUSTOMER_LIST_OUTPUT_DIR / filename)
 
     if categories["valid"].empty:
         print("No valid records found. Priority list not generated.")
@@ -167,8 +169,8 @@ def run_priority_list(as_of_date=None, input_path=None):
         print(f"Priority list generated: {priority_path}")
 
     # 6. Write Validation Report (4‑sheet workbook).
-    validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=as_of_date)
-    validation_path = config.CUSTOMER_LIST_OUTPUT_DIR / validation_filename
+    validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
+    validation_path = excel_writer.resolve_output_path(config.CUSTOMER_LIST_OUTPUT_DIR / validation_filename)
 
     sheets = {
         "summary": summary_df,

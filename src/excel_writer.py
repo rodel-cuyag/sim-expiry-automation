@@ -9,6 +9,8 @@ source data, rather than financial models meant to be edited live in
 Excel — so static, correct values are the right choice here.
 """
 
+from pathlib import Path
+
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -17,6 +19,24 @@ import pandas as pd
 HEADER_FILL = PatternFill("solid", start_color="1F4E78", end_color="1F4E78")
 HEADER_FONT = Font(name="Arial", bold=True, color="FFFFFF")
 BODY_FONT = Font(name="Arial")
+
+
+def resolve_output_path(path: Path) -> Path:
+    """
+    If *path* already exists, append *(1)*, *(2)*, etc. before the
+    extension so the existing file is never silently overwritten.
+    """
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    n = 1
+    while True:
+        candidate = parent / f"{stem} ({n}){suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
 
 
 def _write_dataframe(ws, df: pd.DataFrame):
