@@ -119,19 +119,67 @@ def run_priority_list(as_of_date=None, input_path=None):
         as_of_date = pd.Timestamp.now(tz=config.TIMEZONE).date()
         print(f"No --as-of-date given, defaulting to today (PHT): {as_of_date}")
 
-    # 3. Derive phone variants + days_remaining + priority_tier.
-    priority_df = customer_list.build_priority_list(raw_df, as_of_date)
+    # 3. Validate and categorize every record.
+    categories = customer_list.categorize_records(raw_df, as_of_date)
 
-    # 4. Write the single-sheet workbook, into output/customer_list/.
+    # 4. Build summary statistics.
+    total = len(raw_df)
+    valid_count = len(categories["valid"])
+    invalid_count = len(categories["invalid"])
+    expired_count = len(categories["expired"])
+    beyond_14_count = len(categories["beyond_14"])
+
+    def pct(n):
+        return round(n / total * 100, 1) if total else 0.0
+
+    summary_df = pd.DataFrame({
+        "Metric": [
+            "Total Records",
+            "Valid",
+            "Invalid",
+            "Expired Numbers",
+            "Outside 14-Day Window",
+        ],
+        "Count": [total, valid_count, invalid_count, expired_count, beyond_14_count],
+        "% of Total": [
+            100.0,
+            pct(valid_count),
+            pct(invalid_count),
+            pct(expired_count),
+            pct(beyond_14_count),
+        ],
+    })
+
+    # 5. Write Priority List (valid records only).
     config.CUSTOMER_LIST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=as_of_date)
-    output_path = config.CUSTOMER_LIST_OUTPUT_DIR / filename
-    excel_writer.write_single_sheet(
-        priority_df, output_path, sheet_name="Priority List", date_columns=["exp_date"]
-    )
+    priority_path = config.CUSTOMER_LIST_OUTPUT_DIR / filename
 
-    print(f"Priority list generated: {output_path}")
-    return output_path
+    if categories["valid"].empty:
+        print("No valid records found. Priority list not generated.")
+    else:
+        excel_writer.write_priority_list_sheet(
+            categories["valid"],
+            priority_path,
+            sheet_name="Priority List",
+            date_columns=["exp_date"],
+        )
+        print(f"Priority list generated: {priority_path}")
+
+    # 6. Write Validation Report (4‑sheet workbook).
+    validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=as_of_date)
+    validation_path = config.CUSTOMER_LIST_OUTPUT_DIR / validation_filename
+
+    sheets = {
+        "summary": summary_df,
+        "invalid": categories["invalid"],
+        "expired": categories["expired"],
+        "beyond_14": categories["beyond_14"],
+    }
+    excel_writer.write_validation_report(sheets, validation_path, date_columns=["exp_date"])
+    print(f"Validation report generated: {validation_path}")
+
+    return priority_path if not categories["valid"].empty else None
 
 
 if __name__ == "__main__":
