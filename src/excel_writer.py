@@ -1,12 +1,11 @@
 """
 excel_writer.py
 -----------------
-Writes the EOD Report and Call Detail Log DataFrames into a single
-formatted .xlsx workbook with 2 sheets, using openpyxl.
+Writes report DataFrames into formatted .xlsx workbooks using openpyxl.
 
 Note: values here are pre-computed in Python (not live Excel formulas).
-This is an operational snapshot report generated fresh each run from
-source CSVs, rather than a financial model meant to be edited live in
+These are operational snapshot reports generated fresh each run from
+source data, rather than financial models meant to be edited live in
 Excel — so static, correct values are the right choice here.
 """
 
@@ -43,7 +42,7 @@ def _write_dataframe(ws, df: pd.DataFrame):
 
 
 def write_report(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path):
-    """Creates the final 2-sheet workbook: 'EOD Report' and 'Call Detail Log'."""
+    """Creates the EOD-mode 2-sheet workbook: 'EOD Report' and 'Call Detail Log'."""
     wb = Workbook()
 
     eod_sheet = wb.active
@@ -52,6 +51,30 @@ def write_report(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path
 
     detail_sheet = wb.create_sheet("Call Detail Log")
     _write_dataframe(detail_sheet, call_detail_df)
+
+    wb.save(output_path)
+    return output_path
+
+
+def write_single_sheet(df: pd.DataFrame, output_path, sheet_name: str, date_columns=None):
+    """
+    Creates a single-sheet workbook (used by Priority List mode).
+    date_columns: optional list of column names to format as plain
+    dates (YYYY-MM-DD) instead of openpyxl's default datetime display.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+    _write_dataframe(ws, df)
+
+    if date_columns:
+        columns = list(df.columns)
+        for col_name in date_columns:
+            if col_name not in columns:
+                continue
+            col_letter = get_column_letter(columns.index(col_name) + 1)
+            for cell in ws[col_letter][1:]:  # skip header row
+                cell.number_format = "YYYY-MM-DD"
 
     wb.save(output_path)
     return output_path

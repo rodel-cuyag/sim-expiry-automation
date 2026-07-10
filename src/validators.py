@@ -2,19 +2,20 @@
 validators.py
 ---------------
 Input validation, kept in its own module so it doesn't get buried inside
-main.py and can be reused/tested on its own. Currently just the
---start-date / --end-date range check for the report CLI.
+main.py and can be reused/tested on its own.
 """
 
 import datetime
 
 
 class InvalidDateRangeError(Exception):
-    """Raised when --start-date / --end-date are missing, malformed, or out of order."""
+    """Raised when a date argument is missing, malformed, or out of order."""
     pass
 
 
-def _parse_single_date(date_str: str) -> datetime.date:
+def parse_single_date(date_str: str) -> datetime.date:
+    """Validates and parses a single YYYY-MM-DD date string. Public so it
+    can be reused by any CLI flag that takes one date (e.g. --as-of-date)."""
     try:
         return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
     except (ValueError, TypeError):
@@ -25,7 +26,7 @@ def _parse_single_date(date_str: str) -> datetime.date:
 
 def parse_date_range(start_str: str, end_str: str):
     """
-    Validates and parses the --start-date / --end-date CLI args.
+    Validates and parses the --start-date / --end-date CLI args (EOD mode).
 
     Rules:
       - Both must be given together, or neither (neither means "default
@@ -46,8 +47,8 @@ def parse_date_range(start_str: str, end_str: str):
     if start_str is None and end_str is None:
         return None, None
 
-    start_date = _parse_single_date(start_str)
-    end_date = _parse_single_date(end_str)
+    start_date = parse_single_date(start_str)
+    end_date = parse_single_date(end_str)
 
     if start_date > end_date:
         raise InvalidDateRangeError(

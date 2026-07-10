@@ -1,28 +1,30 @@
 """
 data_loader.py
 ---------------
-Responsible for ONE thing: reading the raw CSV files off disk into
+Responsible for ONE thing: reading the raw input files off disk into
 pandas DataFrames. No cleaning, no merging, no business logic here —
-that lives in preprocessing.py. Keeping this separate makes it easy
-to swap CSVs for a database or API later without touching anything else.
+that lives in preprocessing.py (EOD mode) / customer_list.py (Priority
+List mode). Keeping this separate makes it easy to swap files for a
+database or API later without touching anything else.
 """
 
-import sys
 import pandas as pd
 from src import config
 from src.progress import Spinner
 
 
 class MissingInputFileError(Exception):
-    """Raised when one or more required input CSVs are not found on disk."""
+    """Raised when a required input file is not found on disk."""
     pass
 
 
+# ── Mode 1: EOD Report ────────────────────────────────────────────
+
 def validate_input_files():
     """
-    Checks that all 3 required CSVs exist in data/ before we try to read
-    anything. Fails fast with a clear, actionable message instead of a
-    raw FileNotFoundError traceback buried in a pandas stack trace.
+    Checks that all 3 required EOD-mode CSVs exist in data/eod/ before
+    we try to read anything. Fails fast with a clear, actionable message
+    instead of a raw FileNotFoundError traceback buried in a pandas stack trace.
     """
     required_files = {
         "conversations.csv": config.CONVERSATIONS_CSV,
@@ -36,16 +38,16 @@ def validate_input_files():
         message_lines = [
             "",
             "=" * 60,
-            "MISSING INPUT FILE(S) — cannot generate the report.",
+            "MISSING INPUT FILE(S) — cannot generate the EOD report.",
             "=" * 60,
-            f"Expected folder: {config.DATA_DIR}",
+            f"Expected folder: {config.EOD_DATA_DIR}",
             "",
             "Missing file(s):",
         ]
         message_lines += [f"  - {name}" for name in missing]
         message_lines += [
             "",
-            "Fix: place the missing CSV(s) in the data/ folder above,",
+            "Fix: place the missing CSV(s) in the data/eod/ folder above,",
             "using those exact filenames, then run the script again.",
             "=" * 60,
             "",
@@ -72,10 +74,43 @@ def load_twilio_events() -> pd.DataFrame:
 
 
 def load_all() -> dict:
-    """Convenience wrapper: validates files exist, then loads all 3 inputs."""
+    """Convenience wrapper: validates EOD files exist, then loads all 3."""
     validate_input_files()
     return {
         "conversations": load_conversations(),
         "kpi_results": load_kpi_results(),
         "twilio_events": load_twilio_events(),
     }
+
+
+# ── Mode 2: Priority List ─────────────────────────────────────────
+
+def validate_customer_list_file(path=None):
+    """
+    Checks that the customer list workbook exists before we try to read
+    it. `path` lets --input override the default config location.
+    """
+    target = path or config.CUSTOMER_LIST_XLSX
+
+    if not target.exists():
+        message = "\n".join([
+            "",
+            "=" * 60,
+            "MISSING INPUT FILE — cannot generate the priority list.",
+            "=" * 60,
+            f"Expected file: {target}",
+            "",
+            "Fix: place the customer list workbook at the path above",
+            "(or pass --input <path> to point at a different location),",
+            "then run the script again.",
+            "=" * 60,
+            "",
+        ])
+        raise MissingInputFileError(message)
+
+
+def load_customer_list(path=None) -> pd.DataFrame:
+    """Load the raw SIM expiry customer list (customer_phone, exp_date)."""
+    target = path or config.CUSTOMER_LIST_XLSX
+    with Spinner("Loading sim_expiry_customer_list.xlsx"):
+        return pd.read_excel(target, sheet_name=0)
