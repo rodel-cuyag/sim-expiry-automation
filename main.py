@@ -1,39 +1,69 @@
 """
 main.py
 --------
-Entry point. Run this file to generate the SIM Expiry EOD Report + Call
-Detail Log Excel workbook.
+Entry point. Run this file to generate either:
+  - Mode 1 "eod": SIM Expiry EOD Report + Call Detail Log workbook
+  - Mode 2 "priority-list": SIM Expiry Priority List workbook
 
 Usage:
-    python main.py                                             # most recent date in the data, default agent
-    python main.py --start-date 2026-06-25 --end-date 2026-06-29  # a date range
-    python main.py --start-date 2026-06-29 --end-date 2026-06-29  # a single day (range of 1)
+    python main.py                                                       # EOD mode (default), most recent date, default agent
+    python main.py --start-date 2026-06-25 --end-date 2026-06-29         # EOD mode, a date range
     python main.py --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29
+
+    python main.py --mode priority-list                                  # Priority List mode, as-of today (PHT)
+    python main.py --mode priority-list --as-of-date 2026-07-10          # Priority List mode, as-of a specific date
+    python main.py --mode priority-list --input path/to/other_list.xlsx  # override the input file
 """
 
 import argparse
 import sys
 
-from src import config, preprocessing, call_detail, eod_report, excel_writer, validators
+import pandas as pd
+
+from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader
 from src.data_loader import MissingInputFileError
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Generate SIM Expiry EOD Report + Call Detail Log.")
+    parser = argparse.ArgumentParser(description="Generate SIM Expiry reports.")
+    parser.add_argument(
+        "--mode", choices=["eod", "priority-list"], default="eod",
+        help="Which report to generate: 'eod' (EOD Report + Call Detail Log, default) "
+             "or 'priority-list' (SIM Expiry Priority List from the customer list workbook).",
+    )
+
+    # --- Mode 1 (eod) args ---
     parser.add_argument(
         "--start-date", type=str, default=None,
-        help="Start of the report period, format YYYY-MM-DD. Must be given together with --end-date. "
+        help="[eod mode] Start of the report period, format YYYY-MM-DD. Must be given together with --end-date. "
              "Omit both to default to the most recent single day found in the data.",
     )
     parser.add_argument(
         "--end-date", type=str, default=None,
-        help="End of the report period, format YYYY-MM-DD (inclusive). Must be given together with --start-date.",
+        help="[eod mode] End of the report period, format YYYY-MM-DD (inclusive). Must be given together with --start-date.",
     )
-    parser.add_argument("--agent-id", type=int, default=config.AGENT_ID, help="Agent ID to report on (defaults to config.AGENT_ID).")
+    parser.add_argument(
+        "--agent-id", type=int, default=config.AGENT_ID,
+        help="[eod mode] Agent ID to report on (defaults to config.AGENT_ID).",
+    )
+
+    # --- Mode 2 (priority-list) args ---
+    parser.add_argument(
+        "--as-of-date", type=str, default=None,
+        help="[priority-list mode] Reference date (YYYY-MM-DD) used to compute days_remaining. "
+             "Defaults to today in PHT.",
+    )
+    parser.add_argument(
+        "--input", type=str, default=None,
+        help="[priority-list mode] Path to the customer list workbook, overriding config.CUSTOMER_LIST_XLSX.",
+    )
+
     return parser.parse_args()
 
 
-def run(agent_id: int, start_date=None, end_date=None):
+# ── Mode 1: EOD Report ────────────────────────────────────────────
+
+def run_eod(agent_id: int, start_date=None, end_date=None):
     # 1. Load + clean + merge the 3 source files, filtered to this agent.
     working_table = preprocessing.build_working_table(agent_id=agent_id)
 
@@ -53,36 +83,82 @@ def run(agent_id: int, start_date=None, end_date=None):
     eod_df = eod_report.build_eod_report(detail_log, start_date, end_date, agent_id)
 
     # 5. Slice the detail log down to the report period for the sheet.
-    #    Call Date (PHT) is kept as a column since a range can span
-    #    multiple calling days.
     range_detail_log = detail_log[
         (detail_log["Call Date (PHT)"] >= start_date) & (detail_log["Call Date (PHT)"] <= end_date)
     ].reset_index(drop=True)
 
-    # 6. Write both sheets to a single Excel workbook.
-    config.OUTPUT_DIR.mkdir(exist_ok=True)
+    # 6. Write both sheets to a single Excel workbook, into output/eod/.
+    config.EOD_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if start_date == end_date:
         filename = config.OUTPUT_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
     else:
         filename = config.OUTPUT_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
-    output_path = config.OUTPUT_DIR / filename
+    output_path = config.EOD_OUTPUT_DIR / filename
     excel_writer.write_report(eod_df, range_detail_log, output_path)
 
-    print(f"Report generated: {output_path}")
+    print(f"EOD report generated: {output_path}")
+    return output_path
+
+
+# ── Mode 2: Priority List ─────────────────────────────────────────
+
+def run_priority_list(as_of_date=None, input_path=None):
+    from pathlib import Path
+    input_path = Path(input_path) if input_path else None
+
+    # 1. Validate + load the customer list workbook.
+    data_loader.validate_customer_list_file(input_path)
+    raw_df = data_loader.load_customer_list(input_path)
+
+    if raw_df.empty:
+        print("Customer list is empty. Nothing to report.")
+        sys.exit(1)
+
+    # 2. Default as-of-date to today in PHT if not given.
+    if as_of_date is None:
+        as_of_date = pd.Timestamp.now(tz=config.TIMEZONE).date()
+        print(f"No --as-of-date given, defaulting to today (PHT): {as_of_date}")
+
+    # 3. Derive phone variants + days_remaining + priority_tier.
+    priority_df = customer_list.build_priority_list(raw_df, as_of_date)
+
+    # 4. Write the single-sheet workbook, into output/customer_list/.
+    config.CUSTOMER_LIST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=as_of_date)
+    output_path = config.CUSTOMER_LIST_OUTPUT_DIR / filename
+    excel_writer.write_single_sheet(
+        priority_df, output_path, sheet_name="Priority List", date_columns=["exp_date"]
+    )
+
+    print(f"Priority list generated: {output_path}")
     return output_path
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    try:
-        parsed_start, parsed_end = validators.parse_date_range(args.start_date, args.end_date)
-    except validators.InvalidDateRangeError as e:
-        print(f"Invalid date range: {e}")
-        sys.exit(1)
+    if args.mode == "priority-list":
+        try:
+            as_of = validators.parse_single_date(args.as_of_date) if args.as_of_date else None
+        except validators.InvalidDateRangeError as e:
+            print(f"Invalid --as-of-date: {e}")
+            sys.exit(1)
 
-    try:
-        run(agent_id=args.agent_id, start_date=parsed_start, end_date=parsed_end)
-    except MissingInputFileError as e:
-        print(e)
-        sys.exit(1)
+        try:
+            run_priority_list(as_of_date=as_of, input_path=args.input)
+        except MissingInputFileError as e:
+            print(e)
+            sys.exit(1)
+
+    else:  # args.mode == "eod"
+        try:
+            parsed_start, parsed_end = validators.parse_date_range(args.start_date, args.end_date)
+        except validators.InvalidDateRangeError as e:
+            print(f"Invalid date range: {e}")
+            sys.exit(1)
+
+        try:
+            run_eod(agent_id=args.agent_id, start_date=parsed_start, end_date=parsed_end)
+        except MissingInputFileError as e:
+            print(e)
+            sys.exit(1)
