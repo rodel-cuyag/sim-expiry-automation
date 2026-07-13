@@ -110,7 +110,11 @@ def validate_customer_list_file(path=None):
 
 
 def load_customer_list(path=None) -> pd.DataFrame:
-    """Load the raw SIM expiry customer list (customer_phone, exp_date)."""
+    """Load the raw SIM expiry customer list (customer_phone, exp_date).
+    Supports .xlsx and .csv — auto-detected from file extension."""
     target = path or config.CUSTOMER_LIST_XLSX
-    with Spinner("Loading sim_expiry_customer_list.xlsx"):
+    with Spinner(f"Loading {target.name}"):
+        suffix = target.suffix.lower()
+        if suffix == ".csv":
+            return pd.read_csv(target)
         return pd.read_excel(target, sheet_name=0)

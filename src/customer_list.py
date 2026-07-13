@@ -5,42 +5,14 @@ Business logic for Mode 2: the SIM Expiry Priority List. Takes the raw
 customer_phone / exp_date list Globe provides and derives the phone
 number variants + urgency tier needed for scheduling, following the
 Priority Tier definition
-(Tier 1 = 0-3 days to expiry, Tier 2 = 4-7 days, Tier 3 = 8+ days).
+(Tier 1 = 0-3 days to expiry, Tier 2 = 4-7 days, Tier 3 = 8-14 days).
 
-No I/O here — that lives in data_loader.py — this module only
-transforms a DataFrame that's already been loaded.
+Also handles data validation and categorization for the validation report.
 """
 
 import re
+from collections import Counter
 import pandas as pd
-
-
-def clean_phone(raw_value):
-    """
-    Splits a single customer_phone value (e.g. "+63 948 508 9512") into:
-      - customer_phone_9x: the 10-digit local number with the +63 country
-        code stripped (e.g. "9485089512")
-      - last_four_digits: the last 4 digits of that number (e.g. "9512")
-
-    Defensive like clean_contact_number() in preprocessing.py: strips to
-    digits-only first, then removes a leading country/trunk code if
-    present, rather than assuming a fixed format and crashing on anything
-    else.
-    """
-    if pd.isna(raw_value):
-        return None, None
-
-    digits = re.sub(r"\D", "", str(raw_value))
-
-    if digits.startswith("63") and len(digits) == 12:
-        local = digits[2:]          # +63 948 508 9512 -> 9485089512
-    elif digits.startswith("0") and len(digits) == 11:
-        local = digits[1:]          # 09485089512 -> 9485089512
-    else:
-        local = digits              # already local format, or unexpected — keep as-is
-
-    last_four = local[-4:] if len(local) >= 4 else (local or None)
-    return local or None, last_four
 
 
 def compute_days_remaining(exp_date, as_of_date):
@@ -63,8 +35,6 @@ def compute_priority_tier(days_remaining):
     return "TIER 3"
 
 
-# Sort order for the output: most urgent first (matches the scheduler
-# logic in the plan — Tier 1 records always fill first).
 _TIER_SORT_ORDER = {
     "EXPIRED": 0,
     "TIER 1": 1,
@@ -73,48 +43,156 @@ _TIER_SORT_ORDER = {
 }
 
 
-def build_priority_list(raw_df: pd.DataFrame, as_of_date) -> pd.DataFrame:
+# ── Validation helpers ─────────────────────────────────────────────
+
+
+def validate_phone_format(raw_value):
     """
-    Transforms the raw (customer_phone, exp_date) list into the final
-    Priority List DataFrame, ready to write to Excel.
+    Validate phone number format. Only +63/63 format accepted.
+    Must be exactly 12 digits after stripping all non-digit characters.
 
-    Output columns, in order:
-      customer_phone, customer_phone_9x, last_four_digits,
-      days_remaining, exp_date, priority_tier
+    Returns (is_valid, reason, phone_9x, last_4).
+    """
+    if pd.isna(raw_value) or str(raw_value).strip() == "":
+        return False, "Missing phone number", None, None
 
-    Sorted by days_remaining ascending (most urgent first), with tier as
-    tiebreaker.
+    digits = re.sub(r"\D", "", str(raw_value))
+
+    if not digits.startswith("63") or len(digits) < 2:
+        return False, "Invalid PH code (must start with +63 or 63)", None, None
+
+    if len(digits) != 12:
+        return False, "Invalid PH number length / Invalid last 4 digits", None, None
+
+    phone_9x = digits[2:]
+    last_4 = digits[-4:]
+    return True, None, phone_9x, last_4
+
+
+def validate_date_format(raw_value, as_of_date):
+    """
+    Validate expiration date format.
+    Returns (is_valid, reason, parsed_date, days_remaining).
+    """
+    if pd.isna(raw_value) or str(raw_value).strip() == "":
+        return False, "Missing expiration date", None, None
+
+    try:
+        parsed = pd.to_datetime(raw_value)
+        parsed_date = parsed.date() if hasattr(parsed, "date") else parsed
+        days_rem = compute_days_remaining(parsed_date, as_of_date)
+        return True, None, parsed_date, days_rem
+    except (ValueError, TypeError):
+        return False, "Invalid date format", None, None
+
+
+# ── Categorization ─────────────────────────────────────────────────
+
+
+def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
+    """
+    Validates and categorizes every row in the raw customer list.
+
+    Processing order per row:
+      1. Phone chain: missing → code → length (stops on first failure)
+      2. Date chain: missing → format (independent of phone chain)
+      3. Duplicate check (global, always runs)
+
+    Returns a dict with four DataFrames:
+        valid     — passes all checks, 0–14 days remaining
+        invalid   — failed at least one check (+ ``reason`` column)
+        expired   — passes checks, days_remaining < 0
+        beyond_14 — passes checks, days_remaining > 14
     """
     df = raw_df.copy()
 
-    mask = df["customer_phone"].notna()
-    df.loc[mask, "customer_phone"] = (
-        df.loc[mask, "customer_phone"].astype(str).str.replace(r"\s+", "", regex=True)
-    )
+    # Phase 1: validate each row
+    processed = []
+    for _, row in df.iterrows():
+        phone_raw = row.get("customer_phone")
+        exp_raw = row.get("exp_date")
 
-    cleaned = df["customer_phone"].apply(clean_phone)
-    df["customer_phone_9x"] = cleaned.apply(lambda t: t[0])
-    df["last_four_digits"] = cleaned.apply(lambda t: t[1])
+        reasons = []
 
-    df["days_remaining"] = df["exp_date"].apply(
-        lambda d: compute_days_remaining(d, as_of_date)
-    )
-    df["priority_tier"] = df["days_remaining"].apply(compute_priority_tier)
-    df["exp_date"] = pd.to_datetime(df["exp_date"]).dt.date
+        # Phone chain (stops on first failure)
+        phone_ok, phone_reason, phone_9x, last_4 = validate_phone_format(phone_raw)
+        if not phone_ok:
+            reasons.append(phone_reason)
 
-    out = df[[
-        "customer_phone",
-        "customer_phone_9x",
-        "last_four_digits",
-        "days_remaining",
-        "exp_date",
-        "priority_tier",
-    ]].copy()
+        # Date chain (independent of phone chain)
+        date_ok, date_reason, parsed_date, days_rem = validate_date_format(exp_raw, as_of_date)
+        if not date_ok:
+            reasons.append(date_reason)
 
-    out["_tier_sort"] = out["priority_tier"].map(_TIER_SORT_ORDER)
-    out = (
-        out.sort_values(["days_remaining", "_tier_sort"])
-        .drop(columns="_tier_sort")
-        .reset_index(drop=True)
-    )
-    return out
+        phone_display = str(phone_raw).strip() if not pd.isna(phone_raw) else ""
+        processed.append({
+            "phone_raw": phone_display,
+            "exp_raw": exp_raw,
+            "parsed_date": parsed_date,
+            "phone_9x": phone_9x,
+            "last_4": last_4,
+            "days_remaining": days_rem,
+            "reasons": reasons,
+        })
+
+    # Phase 2: duplicate detection (global, always runs)
+    phone_counts = Counter(p["phone_raw"] for p in processed if p["phone_raw"])
+    for p in processed:
+        if p["phone_raw"] and phone_counts[p["phone_raw"]] > 1:
+            p["reasons"].append("Duplicate phone number")
+
+    # Phase 3: classify into four buckets
+    valid_list, invalid_list, expired_list, beyond_14_list = [], [], [], []
+
+    for p in processed:
+        reason_str = "; ".join(p["reasons"]) if p["reasons"] else None
+
+        if reason_str:
+            # Show parsed date if available, otherwise original raw value
+            if p["parsed_date"] is not None:
+                exp_display = p["parsed_date"]
+            elif not pd.isna(p["exp_raw"]):
+                exp_display = str(p["exp_raw"])
+            else:
+                exp_display = ""
+            invalid_list.append({
+                "customer_phone": p["phone_raw"],
+                "exp_date": exp_display,
+                "reason": reason_str,
+            })
+        else:
+            out_row = {
+                "customer_phone": p["phone_raw"],
+                "customer_phone_9x": p["phone_9x"],
+                "last_four_digits": p["last_4"],
+                "exp_date": p["parsed_date"],
+                "days_remaining": p["days_remaining"],
+                "priority_tier": compute_priority_tier(p["days_remaining"]),
+            }
+            if p["days_remaining"] < 0:
+                expired_list.append(out_row)
+            elif p["days_remaining"] > 14:
+                beyond_14_list.append(out_row)
+            else:
+                valid_list.append(out_row)
+
+    def _sorted_df(rows, columns):
+        if not rows:
+            return pd.DataFrame(columns=columns)
+        result = pd.DataFrame(rows)
+        result["_sort"] = result["priority_tier"].map(_TIER_SORT_ORDER).fillna(99)
+        result = result.sort_values(["days_remaining", "_sort"]).drop(columns="_sort").reset_index(drop=True)
+        return result
+
+    valid_cols = [
+        "customer_phone", "customer_phone_9x", "last_four_digits",
+        "days_remaining", "exp_date", "priority_tier",
+    ]
+    invalid_cols = ["customer_phone", "exp_date", "reason"]
+
+    return {
+        "valid": _sorted_df(valid_list, valid_cols),
+        "invalid": pd.DataFrame(invalid_list, columns=invalid_cols) if invalid_list else pd.DataFrame(columns=invalid_cols),
+        "expired": _sorted_df(expired_list, valid_cols),
+        "beyond_14": _sorted_df(beyond_14_list, valid_cols),
+    }

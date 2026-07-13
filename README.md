@@ -1,4 +1,4 @@
-# SIM Expiry Voicebot — Report Automation (EOD Report + Priority List)
+# SIM Expiry Voicebot — Report Automation (EOD Report + Priority List + Validation Report)
 
 Generates one of two reports:
 
@@ -6,8 +6,9 @@ Generates one of two reports:
   Log**) from 3 raw source CSVs (`conversations`, `kpi_results`,
   `twilio_webhook_events`), filtered to a single agent and a calling-day range.
 
-- **Priority List** — a single-sheet workbook with urgency-tiered phone
-  numbers derived from the customer list workbook provided by Globe.
+- **Priority List** — produces two workbooks from the customer list workbook
+  provided by Globe: a **Priority List** (valid, urgency-tiered numbers) and a
+  **Validation Report** (4-sheet data quality report with invalid/expired/beyond-window records).
 
 ---
 
@@ -97,6 +98,7 @@ sim_expiry_automation/
 │   └── eod/                   → input: 3 CSVs (EOD mode)
 ├── output/
 │   ├── customer_list/         → generated: SIM_Expiry_Priority_List_{date}.xlsx
+│   │                           + SIM_Expiry_Validation_Report_{date}.xlsx
 │   └── eod/                   → generated: SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx
 ├── src/
 │   ├── config.py              → all settings in one place (paths, AGENT_ID, timezone, filename templates)
@@ -106,8 +108,8 @@ sim_expiry_automation/
 │   ├── preprocessing.py       → cleans data, parses JSON, filters to one agent, joins 3 sources (EOD mode)
 │   ├── call_detail.py         → builds the "Call Detail Log" sheet (one row per call)
 │   ├── eod_report.py          → builds the "EOD Report" sheet (aggregated summary)
-│   ├── customer_list.py       → builds the Priority List (phone variants, days_remaining, urgency tiers)
-│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (2-sheet or single-sheet)
+│   ├── customer_list.py       → builds the Priority List + validates/categorizes records (valid, invalid, expired, beyond 14 days)
+│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (2-sheet EOD, single-sheet priority list, multi-sheet validation report)
 ├── main.py                    → entry point; dispatches to run_eod() or run_priority_list() based on --mode
 ├── run_samples.ps1            → optional: runs several scenarios in one go
 ├── requirements.txt           → pandas, openpyxl
@@ -160,7 +162,34 @@ python main.py --mode priority-list --input path/to/other.xlsx    # override inp
 - `--input`: override the customer list workbook path
   (default: `data/customer_list/sim_expiry_customer_list.xlsx`).
 
-**Output:** `SIM_Expiry_Priority_List_{date}.xlsx` in `output/customer_list/`.
+**Output:** two workbooks in `output/customer_list/`:
+
+- `SIM_Expiry_Priority_List_{date}.xlsx` — valid records only (0–14 days remaining)
+- `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization (4 sheets)
+
+**Validation rules** (applied to every record in order):
+
+| # | Check | Fails when... |
+|---|---|---|
+| 1 | Missing phone | `customer_phone` is blank |
+| 2 | Missing date | `exp_date` is blank |
+| 3 | Invalid date | `exp_date` cannot be parsed |
+| 4 | Duplicate phone | Same `customer_phone` appears more than once |
+| 5 | Invalid PH code | Number doesn't start with `+63` or `63` |
+| 6 | Invalid length | Not exactly 12 digits after stripping non-digits |
+
+Phone and date chains are independent (both are reported). Duplicate check always
+runs. Cascading errors are suppressed (e.g. invalid PH code does not also report
+invalid length). Multiple reasons are joined with `"; "`.
+
+**Validation Report — 4 sheets:**
+
+| Sheet | Content |
+|---|---|
+| Summary | Record counts per category with percentages |
+| Invalid Data | Rows that failed validation with concatenated `reason` column |
+| Expired Numbers | Already-expired records (`days_remaining < 0`) |
+| Outside 14-Day Window | Lowest-priority records (`days_remaining > 14`) |
 
 **Priority Tier definitions** (per the Globe SIM Expiry Scale-Up plan):
 
@@ -169,9 +198,13 @@ python main.py --mode priority-list --input path/to/other.xlsx    # override inp
 | EXPIRED | < 0 | Past expiry |
 | TIER 1 | 0–3 | Urgent |
 | TIER 2 | 4–7 | Soon |
-| TIER 3 | 8+ | Watch |
+| TIER 3 | 8–14 | Watch |
 
-The output is sorted by `days_remaining` ascending (most urgent first), with tier as a tiebreaker.
+Records with `days_remaining > 14` are routed to the "Outside 14-Day Window"
+sheet in the Validation Report (not assigned a tier).
+
+Outputs are sorted by `days_remaining` ascending (most urgent first), with tier
+as a tiebreaker.
 
 ---
 
@@ -220,11 +253,12 @@ The output is sorted by `days_remaining` ascending (most urgent first), with tie
   populated for this agent. The standalone Priority List mode
   (`--mode priority-list`) does not have this limitation — it computes
   tiers directly from the `exp_date` column in the customer list workbook.
-- **Priority List mode is only as good as the input workbook.** The
-  customer list workbook is a manual/delivered artifact from Globe. If
-  `exp_date` is missing, malformed, or out of date, every derived field
-  (`days_remaining`, `priority_tier`) will be wrong. The script does not
-  validate or sanity-check `exp_date` beyond parsing it as a date.
+- **Priority List mode now validates every record.** Invalid records
+  (bad phone format, unparseable date, duplicates) are written to the
+  **Invalid Data** sheet of the Validation Report with a specific reason.
+  The Priority List workbook itself contains only validated records
+  (0–14 days remaining). The Validation Report also captures expired and
+  beyond-window records in separate sheets.
 - **`call_logs` schema varies by agent.** Agent 1060 stores it as
   `{"metrics": {"total_duration_ms": ...}}`. Other agents (confirmed on
   agent 37, among others) store it as a list of turn-by-turn bot/user

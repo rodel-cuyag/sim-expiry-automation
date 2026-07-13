@@ -9,6 +9,8 @@ source data, rather than financial models meant to be edited live in
 Excel — so static, correct values are the right choice here.
 """
 
+from pathlib import Path
+
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -17,6 +19,24 @@ import pandas as pd
 HEADER_FILL = PatternFill("solid", start_color="1F4E78", end_color="1F4E78")
 HEADER_FONT = Font(name="Arial", bold=True, color="FFFFFF")
 BODY_FONT = Font(name="Arial")
+
+
+def resolve_output_path(path: Path) -> Path:
+    """
+    If *path* already exists, append *(1)*, *(2)*, etc. before the
+    extension so the existing file is never silently overwritten.
+    """
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    n = 1
+    while True:
+        candidate = parent / f"{stem} ({n}){suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
 
 
 def _write_dataframe(ws, df: pd.DataFrame):
@@ -56,9 +76,9 @@ def write_report(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path
     return output_path
 
 
-def write_single_sheet(df: pd.DataFrame, output_path, sheet_name: str, date_columns=None):
+def write_priority_list_sheet(df: pd.DataFrame, output_path, sheet_name: str, date_columns=None):
     """
-    Creates a single-sheet workbook (used by Priority List mode).
+    Creates a single-sheet workbook for the valid Priority List.
     date_columns: optional list of column names to format as plain
     dates (YYYY-MM-DD) instead of openpyxl's default datetime display.
     """
@@ -66,15 +86,44 @@ def write_single_sheet(df: pd.DataFrame, output_path, sheet_name: str, date_colu
     ws = wb.active
     ws.title = sheet_name
     _write_dataframe(ws, df)
+    _apply_date_format(ws, list(df.columns), date_columns)
+    wb.save(output_path)
+    return output_path
 
-    if date_columns:
-        columns = list(df.columns)
-        for col_name in date_columns:
-            if col_name not in columns:
-                continue
-            col_letter = get_column_letter(columns.index(col_name) + 1)
-            for cell in ws[col_letter][1:]:  # skip header row
-                cell.number_format = "YYYY-MM-DD"
+
+def write_validation_report(sheets: dict, output_path, date_columns=None):
+    """
+    Creates the 4-sheet validation report workbook.
+    sheets keys: "summary", "invalid", "expired", "beyond_14"
+    """
+    wb = Workbook()
+
+    ws = wb.active
+    ws.title = "Summary"
+    _write_dataframe(ws, sheets["summary"])
+
+    ws2 = wb.create_sheet("Invalid Data")
+    _write_dataframe(ws2, sheets["invalid"])
+
+    ws3 = wb.create_sheet("Expired Numbers")
+    _write_dataframe(ws3, sheets["expired"])
+    _apply_date_format(ws3, list(sheets["expired"].columns), date_columns)
+
+    ws4 = wb.create_sheet("Outside 14-Day Window")
+    _write_dataframe(ws4, sheets["beyond_14"])
+    _apply_date_format(ws4, list(sheets["beyond_14"].columns), date_columns)
 
     wb.save(output_path)
     return output_path
+
+
+def _apply_date_format(ws, column_names, date_columns):
+    """Apply YYYY-MM-DD formatting to cells in date_columns (skip header row)."""
+    if not date_columns:
+        return
+    for col_name in date_columns:
+        if col_name not in column_names:
+            continue
+        col_letter = get_column_letter(column_names.index(col_name) + 1)
+        for cell in ws[col_letter][1:]:
+            cell.number_format = "YYYY-MM-DD"
