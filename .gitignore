@@ -10,6 +10,7 @@ __pycache__/
 
 # Generated reports (these are outputs, not source — regenerated each run)
 output/**/*.xlsx
+output/**/*.csv
 !output/**/.gitkeep
 
 # Input data (often contains real customer data — usually shouldn't be committed)
