@@ -18,6 +18,11 @@ class MissingInputFileError(Exception):
     pass
 
 
+class MissingHeaderError(Exception):
+    """Raised when the customer list input is missing required columns."""
+    pass
+
+
 # ── Mode 1: EOD Report ────────────────────────────────────────────
 
 def validate_input_files():
@@ -118,3 +123,29 @@ def load_customer_list(path=None) -> pd.DataFrame:
         if suffix == ".csv":
             return pd.read_csv(target)
         return pd.read_excel(target, sheet_name=0)
+
+
+def validate_customer_list_headers(df: pd.DataFrame):
+    """
+    Checks that the DataFrame contains all required columns.
+    Raises MissingHeaderError with a clear message if any are missing.
+    """
+    required = config.REQUIRED_CUSTOMER_LIST_HEADERS
+    missing = [col for col in required if col not in df.columns]
+
+    if missing:
+        message = "\n".join([
+            "",
+            "=" * 60,
+            "MISSING REQUIRED HEADERS — cannot generate the priority list.",
+            "=" * 60,
+            f"Expected headers: {', '.join(required)}",
+            f"Found headers:    {', '.join(df.columns.tolist())}",
+            f"Missing header(s): {', '.join(missing)}",
+            "",
+            "Fix: make sure the input file (CSV or Excel) has the columns",
+            "listed above with those exact names, then run the script again.",
+            "=" * 60,
+            "",
+        ])
+        raise MissingHeaderError(message)
