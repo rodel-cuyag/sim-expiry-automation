@@ -43,8 +43,11 @@ AGENT_ID = 1060
 OUTPUT_FILENAME_TEMPLATE_SINGLE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}.xlsx"
 OUTPUT_FILENAME_TEMPLATE_RANGE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}_to_{end_date}.xlsx"
 
-CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Priority_List_{date}.xlsx"
+CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Priority_List_{date}.csv"
+CUSTOMER_LIST_OUTPUT_FILENAME_NO_TIER_TEMPLATE = "SIM_Expiry_Priority_List_{date}_no_tier.csv"
 VALIDATION_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Validation_Report_{date}.xlsx"
+
+REQUIRED_CUSTOMER_LIST_HEADERS = ["customer_phone", "exp_date"]
 
 # ── Timezone ──────────────────────────────────────────────────────
 # Source timestamps are epoch millis (UTC). Plan requires PHT (UTC+8).

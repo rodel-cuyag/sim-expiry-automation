@@ -117,6 +117,25 @@ def write_validation_report(sheets: dict, output_path, date_columns=None):
     return output_path
 
 
+# ── CSV writers (Priority List) ───────────────────────────────────
+
+
+def write_priority_list_csv(df: pd.DataFrame, output_path):
+    """Write the Priority List (valid records) to a CSV file."""
+    df.to_csv(output_path, index=False)
+    return output_path
+
+
+def write_priority_list_no_tier_csv(df: pd.DataFrame, output_path):
+    """Write the Priority List without the priority_tier column to a CSV file."""
+    no_tier_df = df.drop(columns=["priority_tier"])
+    no_tier_df.to_csv(output_path, index=False)
+    return output_path
+
+
+# ── Excel helpers ─────────────────────────────────────────────────
+
+
 def _apply_date_format(ws, column_names, date_columns):
     """Apply YYYY-MM-DD formatting to cells in date_columns (skip header row)."""
     if not date_columns:

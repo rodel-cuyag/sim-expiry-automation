@@ -22,7 +22,7 @@ from datetime import datetime
 import pandas as pd
 
 from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader
-from src.data_loader import MissingInputFileError
+from src.data_loader import MissingInputFileError, MissingHeaderError
 
 
 def parse_args():
@@ -115,15 +115,18 @@ def run_priority_list(as_of_date=None, input_path=None):
         print("Customer list is empty. Nothing to report.")
         sys.exit(1)
 
-    # 2. Default as-of-date to today in PHT if not given.
+    # 2. Validate required headers.
+    data_loader.validate_customer_list_headers(raw_df)
+
+    # 3. Default as-of-date to today in PHT if not given.
     if as_of_date is None:
         as_of_date = pd.Timestamp.now(tz=config.TIMEZONE).date()
         print(f"No --as-of-date given, defaulting to today (PHT): {as_of_date}")
 
-    # 3. Validate and categorize every record.
+    # 4. Validate and categorize every record.
     categories = customer_list.categorize_records(raw_df, as_of_date)
 
-    # 4. Build summary statistics.
+    # 5. Build summary statistics.
     total = len(raw_df)
     valid_count = len(categories["valid"])
     invalid_count = len(categories["invalid"])
@@ -151,26 +154,31 @@ def run_priority_list(as_of_date=None, input_path=None):
         ],
     })
 
-    # 5. Write Priority List (valid records only).
-    config.CUSTOMER_LIST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # 6. Write outputs inside a date-stamped subfolder.
     now_date = datetime.now().date()
-    filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
-    priority_path = excel_writer.resolve_output_path(config.CUSTOMER_LIST_OUTPUT_DIR / filename)
+    output_dir = config.CUSTOMER_LIST_OUTPUT_DIR / str(now_date)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    if categories["valid"].empty:
-        print("No valid records found. Priority list not generated.")
-    else:
-        excel_writer.write_priority_list_sheet(
-            categories["valid"],
-            priority_path,
-            sheet_name="Priority List",
-            date_columns=["exp_date"],
-        )
+    priority_path = None
+
+    if not categories["valid"].empty:
+        # 6a. Write Priority List CSV (with tier column).
+        filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
+        priority_path = excel_writer.resolve_output_path(output_dir / filename)
+        excel_writer.write_priority_list_csv(categories["valid"], priority_path)
         print(f"Priority list generated: {priority_path}")
 
-    # 6. Write Validation Report (4‑sheet workbook).
+        # 6b. Write Priority List CSV (without tier column).
+        no_tier_filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_NO_TIER_TEMPLATE.format(date=now_date)
+        no_tier_path = excel_writer.resolve_output_path(output_dir / no_tier_filename)
+        excel_writer.write_priority_list_no_tier_csv(categories["valid"], no_tier_path)
+        print(f"Priority list (no tier) generated: {no_tier_path}")
+    else:
+        print("No valid records found. Priority list not generated.")
+
+    # 6c. Write Validation Report (4‑sheet workbook).
     validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
-    validation_path = excel_writer.resolve_output_path(config.CUSTOMER_LIST_OUTPUT_DIR / validation_filename)
+    validation_path = excel_writer.resolve_output_path(output_dir / validation_filename)
 
     sheets = {
         "summary": summary_df,
@@ -181,7 +189,7 @@ def run_priority_list(as_of_date=None, input_path=None):
     excel_writer.write_validation_report(sheets, validation_path, date_columns=["exp_date"])
     print(f"Validation report generated: {validation_path}")
 
-    return priority_path if not categories["valid"].empty else None
+    return priority_path
 
 
 if __name__ == "__main__":
@@ -196,7 +204,7 @@ if __name__ == "__main__":
 
         try:
             run_priority_list(as_of_date=as_of, input_path=args.input)
-        except MissingInputFileError as e:
+        except (MissingInputFileError, MissingHeaderError) as e:
             print(e)
             sys.exit(1)
 

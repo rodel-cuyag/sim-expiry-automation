@@ -6,9 +6,10 @@ Generates one of two reports:
   Log**) from 3 raw source CSVs (`conversations`, `kpi_results`,
   `twilio_webhook_events`), filtered to a single agent and a calling-day range.
 
-- **Priority List** — produces two workbooks from the customer list workbook
-  provided by Globe: a **Priority List** (valid, urgency-tiered numbers) and a
-  **Validation Report** (4-sheet data quality report with invalid/expired/beyond-window records).
+- **Priority List** — produces two CSVs and one Excel workbook from the customer
+  list file provided by Globe: a **Priority List CSV** (valid, urgency-tiered
+  numbers), a **Priority List CSV without tier column**, and a **Validation
+  Report** (4-sheet data quality report with invalid/expired/beyond-window records).
 
 ---
 
@@ -60,8 +61,8 @@ Generates one of two reports:
    python main.py --mode priority-list --as-of-date 2026-07-10           # Priority List, specific date
     python main.py --mode priority-list --input path/to/other.xlsx        # Priority List, override input file
 ```
-   The generated `.xlsx` lands in `output/eod/` (EOD mode) or
-   `output/customer_list/` (Priority List mode).
+   The generated files land in `output/eod/` (EOD mode) or
+   `output/customer_list/{date}/` (Priority List mode, date-stamped subfolder).
 
    Or run `.\run_samples.ps1` (Windows PowerShell) to exercise several
    scenarios at once — default run, single day, multi-day range, a
@@ -75,7 +76,8 @@ Generates one of two reports:
 |---|---|
 | Python 3.10+ | Core language |
 | `pandas` | CSV loading, cleaning, joining, aggregation |
-| `openpyxl` | Writing formatted Excel workbooks (EOD: 2-sheet / Priority List: single-sheet) |
+| `openpyxl` | Writing formatted Excel workbooks (EOD: 2-sheet / Validation Report: 4-sheet) |
+| `pandas.to_csv` | Writing Priority List CSVs (with and without tier column) |
 | VS Code + Python extension | Editor / debugger |
 | `venv` (built into Python, no separate install) | Isolated dependency environment |
 
@@ -94,22 +96,24 @@ safer long-term maintenance — worth it even for a small script like this.
 ```
 sim_expiry_automation/
 ├── data/
-│   ├── customer_list/         → input: sim_expiry_customer_list.xlsx (Priority List mode)
+│   ├── customer_list/         → input: sim_expiry_customer_list.xlsx or .csv (Priority List mode)
 │   └── eod/                   → input: 3 CSVs (EOD mode)
 ├── output/
-│   ├── customer_list/         → generated: SIM_Expiry_Priority_List_{date}.xlsx
+│   ├── customer_list/
+│   │   └── {date}/            → generated: SIM_Expiry_Priority_List_{date}.csv
+│   │                           + SIM_Expiry_Priority_List_{date}_no_tier.csv
 │   │                           + SIM_Expiry_Validation_Report_{date}.xlsx
 │   └── eod/                   → generated: SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx
 ├── src/
-│   ├── config.py              → all settings in one place (paths, AGENT_ID, timezone, filename templates)
+│   ├── config.py              → all settings in one place (paths, AGENT_ID, timezone, filename templates, required headers)
 │   ├── validators.py          → validates date CLI args (--start-date/--end-date, --as-of-date)
-│   ├── data_loader.py         → reads input files off disk; validates they exist first
+│   ├── data_loader.py         → reads input files off disk; validates they exist and have required headers
 │   ├── progress.py            → spinning "loading..." animation in the terminal
 │   ├── preprocessing.py       → cleans data, parses JSON, filters to one agent, joins 3 sources (EOD mode)
 │   ├── call_detail.py         → builds the "Call Detail Log" sheet (one row per call)
 │   ├── eod_report.py          → builds the "EOD Report" sheet (aggregated summary)
-│   ├── customer_list.py       → builds the Priority List + validates/categorizes records (valid, invalid, expired, beyond 14 days)
-│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (2-sheet EOD, single-sheet priority list, multi-sheet validation report)
+│   ├── customer_list.py       → builds the Priority List + validates/categorizes records (valid, invalid, expired, beyond 14 days); normalizes phone numbers to +63XXXXXXXXXX
+│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (2-sheet EOD, 4-sheet validation report) and to .csv (priority list, no-tier priority list)
 ├── main.py                    → entry point; dispatches to run_eod() or run_priority_list() based on --mode
 ├── run_samples.ps1            → optional: runs several scenarios in one go
 ├── requirements.txt           → pandas, openpyxl
@@ -154,18 +158,31 @@ field. The Call Detail Log sheet lists every call in that period with a
 ```bash
 python main.py --mode priority-list                               # as-of today (PHT)
 python main.py --mode priority-list --as-of-date 2026-07-10       # specific reference date
-python main.py --mode priority-list --input path/to/other.xlsx    # override input file
+python main.py --mode priority-list --input path/to/other.csv     # override input file (CSV or Excel)
 ```
 
 - `--as-of-date`: reference date in `YYYY-MM-DD` used to compute
   `days_remaining`. Defaults to today in PHT.
-- `--input`: override the customer list workbook path
+- `--input`: override the customer list file path
   (default: `data/customer_list/sim_expiry_customer_list.xlsx`).
+  Supports both `.xlsx` and `.csv`.
 
-**Output:** two workbooks in `output/customer_list/`:
+**Header validation:** before any processing, the script checks that the input
+file contains the required columns `customer_phone` and `exp_date`. If either is
+missing, processing stops immediately with a clear error message.
 
-- `SIM_Expiry_Priority_List_{date}.xlsx` — valid records only (0–14 days remaining)
-- `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization (4 sheets)
+**Phone normalization:** valid phone numbers in all outputs are formatted as
+`+63XXXXXXXXXX` (no spaces, consistent prefix) regardless of the input format
+(e.g. `+63 998 766 5432` → `+639987665432`, `639212223242` → `+639212223242`).
+
+**Output:** three files in `output/customer_list/{date}/` (date-stamped subfolder):
+
+- `SIM_Expiry_Priority_List_{date}.csv` — valid records only (0–14 days remaining),
+  all columns including `priority_tier`
+- `SIM_Expiry_Priority_List_{date}_no_tier.csv` — same valid records, same headers,
+  without the `priority_tier` column
+- `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
+  (4 sheets, unchanged format)
 
 **Validation rules** (applied to every record in order):
 
@@ -203,8 +220,8 @@ invalid length). Multiple reasons are joined with `"; "`.
 Records with `days_remaining > 14` are routed to the "Outside 14-Day Window"
 sheet in the Validation Report (not assigned a tier).
 
-Outputs are sorted by `days_remaining` ascending (most urgent first), with tier
-as a tiebreaker.
+Both CSV output files are sorted by `days_remaining` ascending (most urgent
+first), with tier as a tiebreaker.
 
 ---
 
