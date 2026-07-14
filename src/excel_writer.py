@@ -91,27 +91,28 @@ def write_priority_list_sheet(df: pd.DataFrame, output_path, sheet_name: str, da
     return output_path
 
 
+_SHEET_TITLES = {
+    "summary": "Summary",
+    "invalid": "Invalid Data",
+    "expired": "Expired Numbers",
+}
+
+
 def write_validation_report(sheets: dict, output_path, date_columns=None):
     """
-    Creates the 4-sheet validation report workbook.
-    sheets keys: "summary", "invalid", "expired", "beyond_14"
+    Creates a multi-sheet validation report workbook.
+    Each key in *sheets* is a sheet identifier; the value is a DataFrame.
     """
     wb = Workbook()
+    wb.active.title = _SHEET_TITLES.get("summary", "Summary")
+    _write_dataframe(wb.active, sheets["summary"])
 
-    ws = wb.active
-    ws.title = "Summary"
-    _write_dataframe(ws, sheets["summary"])
-
-    ws2 = wb.create_sheet("Invalid Data")
-    _write_dataframe(ws2, sheets["invalid"])
-
-    ws3 = wb.create_sheet("Expired Numbers")
-    _write_dataframe(ws3, sheets["expired"])
-    _apply_date_format(ws3, list(sheets["expired"].columns), date_columns)
-
-    ws4 = wb.create_sheet("Outside 14-Day Window")
-    _write_dataframe(ws4, sheets["beyond_14"])
-    _apply_date_format(ws4, list(sheets["beyond_14"].columns), date_columns)
+    for key in list(sheets.keys())[1:]:
+        title = _SHEET_TITLES.get(key, key.replace("_", " ").title())
+        ws = wb.create_sheet(title)
+        _write_dataframe(ws, sheets[key])
+        if date_columns:
+            _apply_date_format(ws, list(sheets[key].columns), date_columns)
 
     wb.save(output_path)
     return output_path

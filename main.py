@@ -132,6 +132,7 @@ def run_priority_list(as_of_date=None, input_path=None):
     invalid_count = len(categories["invalid"])
     expired_count = len(categories["expired"])
     beyond_14_count = len(categories["beyond_14"])
+    valid_combined = valid_count + beyond_14_count
 
     def pct(n):
         return round(n / total * 100, 1) if total else 0.0
@@ -142,15 +143,13 @@ def run_priority_list(as_of_date=None, input_path=None):
             "Valid",
             "Invalid",
             "Expired Numbers",
-            "Outside 14-Day Window",
         ],
-        "Count": [total, valid_count, invalid_count, expired_count, beyond_14_count],
+        "Count": [total, valid_combined, invalid_count, expired_count],
         "% of Total": [
             100.0,
-            pct(valid_count),
+            pct(valid_combined),
             pct(invalid_count),
             pct(expired_count),
-            pct(beyond_14_count),
         ],
     })
 
@@ -161,22 +160,28 @@ def run_priority_list(as_of_date=None, input_path=None):
 
     priority_path = None
 
-    if not categories["valid"].empty:
+    # Merge valid + beyond_14 records for CSV outputs
+    all_records = pd.concat(
+        [categories["valid"], categories["beyond_14"]],
+        ignore_index=True
+    ).sort_values(["days_remaining", "priority_tier"]).reset_index(drop=True)
+
+    if not all_records.empty:
         # 6a. Write Priority List CSV (with tier column).
         filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
         priority_path = excel_writer.resolve_output_path(output_dir / filename)
-        excel_writer.write_priority_list_csv(categories["valid"], priority_path)
+        excel_writer.write_priority_list_csv(all_records, priority_path)
         print(f"Priority list generated: {priority_path}")
 
         # 6b. Write Priority List CSV (without tier column).
         no_tier_filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_NO_TIER_TEMPLATE.format(date=now_date)
         no_tier_path = excel_writer.resolve_output_path(output_dir / no_tier_filename)
-        excel_writer.write_priority_list_no_tier_csv(categories["valid"], no_tier_path)
+        excel_writer.write_priority_list_no_tier_csv(all_records, no_tier_path)
         print(f"Priority list (no tier) generated: {no_tier_path}")
     else:
         print("No valid records found. Priority list not generated.")
 
-    # 6c. Write Validation Report (4‑sheet workbook).
+    # 6c. Write Validation Report (3‑sheet workbook).
     validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
     validation_path = excel_writer.resolve_output_path(output_dir / validation_filename)
 
@@ -184,7 +189,6 @@ def run_priority_list(as_of_date=None, input_path=None):
         "summary": summary_df,
         "invalid": categories["invalid"],
         "expired": categories["expired"],
-        "beyond_14": categories["beyond_14"],
     }
     excel_writer.write_validation_report(sheets, validation_path, date_columns=["exp_date"])
     print(f"Validation report generated: {validation_path}")
