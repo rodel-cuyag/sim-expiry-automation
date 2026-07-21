@@ -127,13 +127,6 @@ def write_priority_list_csv(df: pd.DataFrame, output_path):
     return output_path
 
 
-def write_priority_list_no_tier_csv(df: pd.DataFrame, output_path):
-    """Write the Priority List without the priority_tier column to a CSV file."""
-    no_tier_df = df.drop(columns=["priority_tier"])
-    no_tier_df.to_csv(output_path, index=False)
-    return output_path
-
-
 # ── Excel helpers ─────────────────────────────────────────────────
 
 
