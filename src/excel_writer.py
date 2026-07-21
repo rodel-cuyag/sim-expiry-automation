@@ -20,6 +20,9 @@ HEADER_FILL = PatternFill("solid", start_color="1F4E78", end_color="1F4E78")
 HEADER_FONT = Font(name="Arial", bold=True, color="FFFFFF")
 BODY_FONT = Font(name="Arial")
 
+SECTION_HEADER_FILL = PatternFill("solid", start_color="D6E4F0", end_color="D6E4F0")
+SECTION_HEADER_FONT = Font(name="Arial", bold=True, size=11)
+
 
 def resolve_output_path(path: Path) -> Path:
     """
@@ -66,6 +69,20 @@ def _write_dataframe(ws, df: pd.DataFrame):
     ws.freeze_panes = "A2"
 
 
+def _format_section_headers(ws):
+    """Finds known section header cells and applies bold + fill + merge across A:B."""
+    section_names = {"FINOPS", "ISSUES & CHANGES", "TOMORROW'S PLAN"}
+    for row in ws.iter_rows(min_row=2, max_col=1):
+        cell = row[0]
+        if cell.value in section_names:
+            cell.font = SECTION_HEADER_FONT
+            cell.fill = SECTION_HEADER_FILL
+            ws.merge_cells(
+                start_row=cell.row, start_column=1,
+                end_row=cell.row, end_column=2
+            )
+
+
 def write_report(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path):
     """Creates the EOD-mode 2-sheet workbook: 'EOD Report' and 'Call Detail Log'."""
     wb = Workbook()
@@ -73,6 +90,7 @@ def write_report(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path
     eod_sheet = wb.active
     eod_sheet.title = "EOD Report"
     _write_dataframe(eod_sheet, eod_df)
+    _format_section_headers(eod_sheet)
 
     detail_sheet = wb.create_sheet("Call Detail Log")
     _write_dataframe(detail_sheet, call_detail_df)
