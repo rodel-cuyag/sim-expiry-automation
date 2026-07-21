@@ -125,10 +125,6 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Agreed to Keep SIM Active": df.apply(_agreed_to_keep_sim, axis=1),
         "Customer Disposition": df.get("customer_disposition", pd.Series(dtype=object)),
         "Non-Retention Reason": df.get("non_retention_reason", pd.Series(dtype=object)),
-        # Tier is left blank on purpose: call_config carries no
-        # days_remaining data for this agent, so there's nothing to
-        # derive urgency from. Fill this in once that field is populated.
-        "Priority Tier": None,
         "Call Date (PHT)": df["start_dt_pht"].dt.date,
         "Call Time (PHT)": df["start_dt_pht"].dt.strftime("%H:%M:%S"),
     })

@@ -51,7 +51,12 @@ def _write_dataframe(ws, df: pd.DataFrame):
         ws.append(list(row))
 
     for i, col in enumerate(df.columns, start=1):
-        max_len = max(df[col].astype(str).str.len().max() if not df.empty else 0, len(str(col)))
+        if not df.empty:
+            col_len = df[col].astype(str).str.len().max()
+            col_len = 0 if pd.isna(col_len) else col_len
+        else:
+            col_len = 0
+        max_len = max(col_len, len(str(col)))
         ws.column_dimensions[get_column_letter(i)].width = min(max_len + 4, 45)
 
     for row in ws.iter_rows(min_row=2):
