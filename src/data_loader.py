@@ -1,11 +1,17 @@
 """
 data_loader.py
----------------
+--------------
 Responsible for ONE thing: reading the raw input files off disk into
 pandas DataFrames. No cleaning, no merging, no business logic here —
 that lives in preprocessing.py (EOD mode) / customer_list.py (Priority
 List mode). Keeping this separate makes it easy to swap files for a
 database or API later without touching anything else.
+
+For EOD mode, instead of requiring hardcoded filenames, the loader scans
+the data/eod/ directory for CSV files and identifies each one by its
+column headers (signature matching). Files can be named anything —
+"kpi_results 2.csv", "twilio webhook events.csv", etc. — as long as
+the required columns are present.
 """
 
 import pandas as pd
@@ -25,67 +31,117 @@ class MissingHeaderError(Exception):
 
 # ── Mode 1: EOD Report ────────────────────────────────────────────
 
-def validate_input_files():
+def _discover_eod_files() -> dict:
     """
-    Checks that all 3 required EOD-mode CSVs exist in data/eod/ before
-    we try to read anything. Fails fast with a clear, actionable message
-    instead of a raw FileNotFoundError traceback buried in a pandas stack trace.
-    """
-    required_files = {
-        "conversations.csv": config.CONVERSATIONS_CSV,
-        "kpi_results.csv": config.KPI_RESULTS_CSV,
-        "twilio_webhook_events.csv": config.TWILIO_EVENTS_CSV,
-    }
+    Scan data/eod/ for CSV files and identify each one by matching its
+    column headers against EOD_FILE_SIGNATURES. Returns a dict mapping
+    role -> {path, columns, filename}.
 
-    missing = [name for name, path in required_files.items() if not path.exists()]
+    Raises MissingInputFileError if:
+      - No CSVs found in the directory
+      - A role has zero matching files
+      - Multiple files match the same role (handled because each assigned
+        file is removed from consideration for subsequent roles)
+    """
+    csv_paths = sorted(config.EOD_DATA_DIR.glob("*.csv"))
+
+    if not csv_paths:
+        raise MissingInputFileError(
+            f"No CSV files found in {config.EOD_DATA_DIR}. "
+            "Place at least the required CSV files there and run again."
+        )
+
+    # Load column headers for every CSV in the folder.
+    candidates = {}
+    for path in csv_paths:
+        df = pd.read_csv(path, nrows=0)
+        candidates[path.name] = {
+            "path": path,
+            "columns": set(df.columns),
+        }
+
+    # Match each role to the best file (highest signature-column overlap).
+    assigned = {}
+    used_files = set()
+
+    for role, sig in config.EOD_FILE_SIGNATURES.items():
+        best_file = None
+        best_score = 0
+
+        for fname, info in candidates.items():
+            if fname in used_files:
+                continue
+            score = len(info["columns"] & sig)
+            if score > best_score:
+                best_score = score
+                best_file = fname
+
+        if best_file is None or best_score == 0:
+            found_list = ", ".join(candidates)
+            raise MissingInputFileError(
+                f"Could not find a CSV with the '{role}' signature columns: "
+                f"{', '.join(sorted(sig))}.\n"
+                f"Found files: [{found_list}]\n"
+                f"Ensure a CSV in {config.EOD_DATA_DIR} has the "
+                f"expected columns listed above."
+            )
+
+        assigned[role] = {
+            "path": candidates[best_file]["path"],
+            "columns": candidates[best_file]["columns"],
+            "filename": best_file,
+        }
+        used_files.add(best_file)
+
+    # Warn about unmatched files that will be ignored.
+    for fname in candidates:
+        if fname not in used_files:
+            print(f"Warning: '{fname}' did not match any known "
+                  f"signature and will be ignored.")
+
+    return assigned
+
+
+def _validate_eod_headers(role: str, columns: set, filename: str):
+    """
+    Check that a discovered file has all required columns for its role.
+    Raises MissingHeaderError with a clear message if any are missing.
+    """
+    required = config.EOD_REQUIRED_COLUMNS[role]
+    missing = [col for col in required if col not in columns]
 
     if missing:
-        message_lines = [
+        msg_lines = [
             "",
             "=" * 60,
-            "MISSING INPUT FILE(S) — cannot generate the EOD report.",
+            f"MISSING REQUIRED HEADERS in '{filename}' (matched as '{role}')",
             "=" * 60,
-            f"Expected folder: {config.EOD_DATA_DIR}",
+            f"Expected: {', '.join(required)}",
+            f"Found:    {', '.join(sorted(columns))}",
+            f"Missing:  {', '.join(missing)}",
             "",
-            "Missing file(s):",
-        ]
-        message_lines += [f"  - {name}" for name in missing]
-        message_lines += [
-            "",
-            "Fix: place the missing CSV(s) in the data/eod/ folder above,",
-            "using those exact filenames, then run the script again.",
+            "Fix: make sure the CSV file has the columns listed above",
+            "with those exact names, then run the script again.",
             "=" * 60,
             "",
         ]
-        raise MissingInputFileError("\n".join(message_lines))
-
-
-def load_conversations() -> pd.DataFrame:
-    """Load the master call ledger (conversations.csv)."""
-    with Spinner("Loading conversations.csv"):
-        return pd.read_csv(config.CONVERSATIONS_CSV)
-
-
-def load_kpi_results() -> pd.DataFrame:
-    """Load the AI-derived per-call KPI outcomes (kpi_results.csv)."""
-    with Spinner("Loading kpi_results.csv"):
-        return pd.read_csv(config.KPI_RESULTS_CSV)
-
-
-def load_twilio_events() -> pd.DataFrame:
-    """Load raw Twilio call-progress webhook events."""
-    with Spinner("Loading twilio_webhook_events.csv"):
-        return pd.read_csv(config.TWILIO_EVENTS_CSV)
+        raise MissingHeaderError("\n".join(msg_lines))
 
 
 def load_all() -> dict:
-    """Convenience wrapper: validates EOD files exist, then loads all 3."""
-    validate_input_files()
-    return {
-        "conversations": load_conversations(),
-        "kpi_results": load_kpi_results(),
-        "twilio_events": load_twilio_events(),
-    }
+    """
+    Discover, validate, and load all 3 EOD input CSVs.
+    Returns dict with keys 'conversations', 'kpi_results', 'twilio_events'.
+    """
+    discovered = _discover_eod_files()
+
+    loaded = {}
+    for role, info in discovered.items():
+        _validate_eod_headers(role, info["columns"], info["filename"])
+        with Spinner(f"Loading {info['filename']}"):
+            loaded[role] = pd.read_csv(info["path"])
+
+    return loaded
 
 
 # ── Mode 2: Priority List ─────────────────────────────────────────

@@ -267,8 +267,8 @@ def main():
     combined.to_csv(output_path, index=False)
 
     print(f"\n✓ SUCCESS! Created {output_path}")
-    print(f"\nTo use this data, update config.py:")
-    print(f"  TWILIO_EVENTS_CSV = DATA_DIR / 'twilio_webhook_events_with_dummy.csv'")
+    print(f"\nTo use this data, copy the file into data/eod/ — it will be")
+    print(f"auto-detected by its column headers (call_sid + event).")
     print("=" * 60)
 
 

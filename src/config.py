@@ -22,9 +22,28 @@ CUSTOMER_LIST_DATA_DIR = DATA_DIR / "customer_list"
 CUSTOMER_LIST_OUTPUT_DIR = OUTPUT_DIR / "customer_list"
 
 # ── Mode 1: EOD Report — input CSVs ──────────────────────────────
-CONVERSATIONS_CSV = EOD_DATA_DIR / "conversations.csv"
-KPI_RESULTS_CSV = EOD_DATA_DIR / "kpi_results.csv"
-TWILIO_EVENTS_CSV = EOD_DATA_DIR / "twilio_webhook_events.csv"
+# Header signatures for auto-discovery — data_loader scans data/eod/
+# for CSVs and identifies each file by these unique column sets.
+# Files can be named anything as long as the required columns are present.
+EOD_FILE_SIGNATURES = {
+    "conversations": {"agent_id", "call_logs"},
+    "kpi_results":   {"voiceConversationId", "outputJson"},
+    "twilio_events": {"call_sid", "event"},
+}
+
+# Full column requirements validated after signature-based discovery.
+EOD_REQUIRED_COLUMNS = {
+    "conversations": [
+        "conversation_id", "agent_id", "start_timestamp",
+        "end_timestamp", "call_logs", "contact_number",
+    ],
+    "kpi_results": [
+        "voiceConversationId", "voiceAgentId", "outputJson",
+    ],
+    "twilio_events": [
+        "conversation_id", "event",
+    ],
+}
 
 # ── Mode 2: Priority List — input file ───────────────────────────
 # The ONLY line you need to change if the customer list is ever named
