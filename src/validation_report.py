@@ -96,12 +96,6 @@ def _build_field_completeness(detail_log, start_date=None, end_date=None):
         else:
             st_status = f"Populated ({st})"
 
-        dc = row_.get("Disposition Code")
-        if _is_blank(dc):
-            dc_status = "MISSING"
-        else:
-            dc_status = f"Populated ({dc})"
-
         cd = row_.get("Call Duration (sec)")
         if _is_blank(cd):
             cd_status = "MISSING (No call_logs data)"
@@ -133,21 +127,20 @@ def _build_field_completeness(detail_log, start_date=None, end_date=None):
         ctm_status = _populated_status(ctm, "Populated", "MISSING")
 
         # Score: count non-blank fields
-        fields = [cn, st, dc, cd, ag, cdisp, nrr, cdt, ctm]
+        fields = [cn, st, cd, ag, cdisp, nrr, cdt, ctm]
         score = sum(1 for f in fields if not _is_blank(f))
 
         rows.append({
             "Conversation ID": cid,
             "Contact Number": cn_status,
             "Status": st_status,
-            "Disposition Code": dc_status,
             "Call Duration (sec)": cd_status,
             "Agreed to Keep SIM Active": ag_status,
             "Customer Disposition": cdisp_status,
             "Non-Retention Reason": nrr_status,
             "Call Date (PHT)": cdt_status,
             "Call Time (PHT)": ctm_status,
-            "Completeness Score": f"{score}/9",
+            "Completeness Score": f"{score}/8",
         })
 
     return pd.DataFrame(rows)
@@ -298,7 +291,7 @@ def _build_data_quality_issues(working_table, detail_log,
                 "Issue": "Missing Twilio Event Data",
                 "Detail": (
                     "No matching twilio_webhook_events found for this "
-                    "conversation. Status is blank, Disposition Code is N/A."
+                    "conversation. Status is blank."
                 ),
                 "Severity": "Medium",
             })
