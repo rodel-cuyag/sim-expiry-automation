@@ -21,7 +21,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader
+from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report
 from src.data_loader import MissingInputFileError, MissingHeaderError
 
 
@@ -56,7 +56,7 @@ def parse_args():
     )
     parser.add_argument(
         "--input", type=str, default=None,
-        help="[priority-list mode] Path to the customer list workbook, overriding config.CUSTOMER_LIST_XLSX.",
+        help="[priority-list mode] Path to the customer list workbook. Omit to auto-discover in data/customer_list/.",
     )
 
     return parser.parse_args()
@@ -88,28 +88,38 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
         (detail_log["Call Date (PHT)"] >= start_date) & (detail_log["Call Date (PHT)"] <= end_date)
     ].reset_index(drop=True)
 
-    # 6. Write both sheets to a single Excel workbook, into output/eod/.
-    config.EOD_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if start_date == end_date:
-        filename = config.OUTPUT_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
-    else:
-        filename = config.OUTPUT_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
-    output_path = excel_writer.resolve_output_path(config.EOD_OUTPUT_DIR / filename)
-    excel_writer.write_report(eod_df, range_detail_log, output_path)
+    # 6. Write both sheets to a date-stamped subfolder inside output/eod/.
+    eod_dir = config.get_eod_output_dir(start_date, end_date)
+    eod_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"EOD report generated: {output_path}")
-    return output_path
+    if start_date == end_date:
+        report_filename = config.OUTPUT_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
+        val_filename = config.EOD_VALIDATION_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
+    else:
+        report_filename = config.OUTPUT_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
+        val_filename = config.EOD_VALIDATION_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
+
+    report_path = excel_writer.resolve_output_path(eod_dir / report_filename)
+    excel_writer.write_report(eod_df, range_detail_log, report_path)
+    print(f"EOD report generated: {report_path}")
+
+    # 7. Build and write the validation report alongside the EOD report.
+    val_sheets = validation_report.build_validation_report(
+        working_table, detail_log, eod_df, start_date, end_date, agent_id,
+    )
+    val_path = excel_writer.resolve_output_path(eod_dir / val_filename)
+    excel_writer.write_validation_report(val_sheets, val_path)
+    print(f"Validation report generated: {val_path}")
+
+    return report_path
 
 
 # ── Mode 2: Priority List ─────────────────────────────────────────
 
 def run_priority_list(as_of_date=None, input_path=None):
-    from pathlib import Path
-    input_path = Path(input_path) if input_path else None
-
-    # 1. Validate + load the customer list workbook.
-    data_loader.validate_customer_list_file(input_path)
-    raw_df = data_loader.load_customer_list(input_path)
+    # 1. Resolve path (auto-discover or explicit --input), then load.
+    path = data_loader.resolve_customer_list_path(input_path)
+    raw_df = data_loader.load_customer_list(path)
 
     if raw_df.empty:
         print("Customer list is empty. Nothing to report.")
@@ -131,7 +141,6 @@ def run_priority_list(as_of_date=None, input_path=None):
     valid_count = len(categories["valid"])
     invalid_count = len(categories["invalid"])
     expired_count = len(categories["expired"])
-    beyond_14_count = len(categories["beyond_14"])
 
     def pct(n):
         return round(n / total * 100, 1) if total else 0.0
@@ -142,15 +151,13 @@ def run_priority_list(as_of_date=None, input_path=None):
             "Valid",
             "Invalid",
             "Expired Numbers",
-            "Outside 14-Day Window",
         ],
-        "Count": [total, valid_count, invalid_count, expired_count, beyond_14_count],
+        "Count": [total, valid_count, invalid_count, expired_count],
         "% of Total": [
             100.0,
             pct(valid_count),
             pct(invalid_count),
             pct(expired_count),
-            pct(beyond_14_count),
         ],
     })
 
@@ -161,22 +168,19 @@ def run_priority_list(as_of_date=None, input_path=None):
 
     priority_path = None
 
-    if not categories["valid"].empty:
-        # 6a. Write Priority List CSV (with tier column).
+    # All valid records for CSV output
+    all_records = categories["valid"].sort_values("days_remaining").reset_index(drop=True)
+
+    if not all_records.empty:
+        # 6a. Write Priority List CSV.
         filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
         priority_path = excel_writer.resolve_output_path(output_dir / filename)
-        excel_writer.write_priority_list_csv(categories["valid"], priority_path)
+        excel_writer.write_priority_list_csv(all_records, priority_path)
         print(f"Priority list generated: {priority_path}")
-
-        # 6b. Write Priority List CSV (without tier column).
-        no_tier_filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_NO_TIER_TEMPLATE.format(date=now_date)
-        no_tier_path = excel_writer.resolve_output_path(output_dir / no_tier_filename)
-        excel_writer.write_priority_list_no_tier_csv(categories["valid"], no_tier_path)
-        print(f"Priority list (no tier) generated: {no_tier_path}")
     else:
         print("No valid records found. Priority list not generated.")
 
-    # 6c. Write Validation Report (4‑sheet workbook).
+    # 6b. Write Validation Report (3‑sheet workbook).
     validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
     validation_path = excel_writer.resolve_output_path(output_dir / validation_filename)
 
@@ -184,7 +188,6 @@ def run_priority_list(as_of_date=None, input_path=None):
         "summary": summary_df,
         "invalid": categories["invalid"],
         "expired": categories["expired"],
-        "beyond_14": categories["beyond_14"],
     }
     excel_writer.write_validation_report(sheets, validation_path, date_columns=["exp_date"])
     print(f"Validation report generated: {validation_path}")

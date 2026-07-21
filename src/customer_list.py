@@ -3,9 +3,7 @@ customer_list.py
 ------------------
 Business logic for Mode 2: the SIM Expiry Priority List. Takes the raw
 customer_phone / exp_date list Globe provides and derives the phone
-number variants + urgency tier needed for scheduling, following the
-Priority Tier definition
-(Tier 1 = 0-3 days to expiry, Tier 2 = 4-7 days, Tier 3 = 8-14 days).
+number variants needed for scheduling.
 
 Also handles data validation and categorization for the validation report.
 """
@@ -21,26 +19,6 @@ def compute_days_remaining(exp_date, as_of_date):
         return None
     exp = exp_date.date() if hasattr(exp_date, "date") else exp_date
     return (exp - as_of_date).days
-
-
-def compute_priority_tier(days_remaining):
-    if days_remaining is None:
-        return None
-    if days_remaining < 0:
-        return "EXPIRED"
-    if days_remaining <= 3:
-        return "TIER 1"
-    if days_remaining <= 7:
-        return "TIER 2"
-    return "TIER 3"
-
-
-_TIER_SORT_ORDER = {
-    "EXPIRED": 0,
-    "TIER 1": 1,
-    "TIER 2": 2,
-    "TIER 3": 3,
-}
 
 
 # ── Validation helpers ─────────────────────────────────────────────
@@ -98,11 +76,10 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
       2. Date chain: missing → format (independent of phone chain)
       3. Duplicate check (global, always runs)
 
-    Returns a dict with four DataFrames:
-        valid     — passes all checks, 0–14 days remaining
+    Returns a dict with three DataFrames:
+        valid     — passes all checks, days_remaining >= 0
         invalid   — failed at least one check (+ ``reason`` column)
         expired   — passes checks, days_remaining < 0
-        beyond_14 — passes checks, days_remaining > 14
     """
     df = raw_df.copy()
 
@@ -145,8 +122,8 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
         if p["phone_raw"] and phone_counts[p["phone_raw"]] > 1:
             p["reasons"].append("Duplicate phone number")
 
-    # Phase 3: classify into four buckets
-    valid_list, invalid_list, expired_list, beyond_14_list = [], [], [], []
+    # Phase 3: classify into three buckets
+    valid_list, invalid_list, expired_list = [], [], []
 
     for p in processed:
         reason_str = "; ".join(p["reasons"]) if p["reasons"] else None
@@ -171,26 +148,20 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
                 "last_four_digits": p["last_4"],
                 "exp_date": p["parsed_date"],
                 "days_remaining": p["days_remaining"],
-                "priority_tier": compute_priority_tier(p["days_remaining"]),
             }
             if p["days_remaining"] < 0:
                 expired_list.append(out_row)
-            elif p["days_remaining"] > 14:
-                beyond_14_list.append(out_row)
             else:
                 valid_list.append(out_row)
 
     def _sorted_df(rows, columns):
         if not rows:
             return pd.DataFrame(columns=columns)
-        result = pd.DataFrame(rows)
-        result["_sort"] = result["priority_tier"].map(_TIER_SORT_ORDER).fillna(99)
-        result = result.sort_values(["days_remaining", "_sort"]).drop(columns="_sort").reset_index(drop=True)
-        return result
+        return pd.DataFrame(rows).sort_values("days_remaining").reset_index(drop=True)
 
     valid_cols = [
         "customer_phone", "customer_phone_9x", "last_four_digits",
-        "days_remaining", "exp_date", "priority_tier",
+        "days_remaining", "exp_date",
     ]
     invalid_cols = ["customer_phone", "exp_date", "reason"]
 
@@ -198,5 +169,4 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
         "valid": _sorted_df(valid_list, valid_cols),
         "invalid": pd.DataFrame(invalid_list, columns=invalid_cols) if invalid_list else pd.DataFrame(columns=invalid_cols),
         "expired": _sorted_df(expired_list, valid_cols),
-        "beyond_14": _sorted_df(beyond_14_list, valid_cols),
     }

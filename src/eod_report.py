@@ -83,13 +83,13 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
         ("", ""),  # Blank row
 
         # FINOPS Section
-        ("=== FINOPS ===", ""),
+        ("FINOPS", ""),
         ("LLM Inference Cost (USD)", "[PLACEHOLDER - Consult team]"),
         ("Total Daily Spend (USD)", "[PLACEHOLDER - Consult team]"),
         ("", ""),  # Blank row
 
         # ISSUES & CHANGES Section
-        ("=== ISSUES & CHANGES ===", ""),
+        ("ISSUES & CHANGES", ""),
         ("Open P0 Issues", "[PLACEHOLDER - Consult team]"),
         ("Open P1 Issues", "[PLACEHOLDER - Consult team]"),
         ("Changes Deployed Today", "[PLACEHOLDER - Manual entry]"),
@@ -97,7 +97,7 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
         ("", ""),  # Blank row
 
         # TOMORROW'S PLAN Section
-        ("=== TOMORROW'S PLAN ===", ""),
+        ("TOMORROW'S PLAN", ""),
         ("Target Call Volume", "[PLACEHOLDER - Manual entry]"),
         ("Expected List from Globe (ETA)", "[PLACEHOLDER - Manual entry]"),
         ("Calling Window", "9:00 AM - 7:00 PM PHT"),

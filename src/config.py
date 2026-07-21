@@ -22,14 +22,33 @@ CUSTOMER_LIST_DATA_DIR = DATA_DIR / "customer_list"
 CUSTOMER_LIST_OUTPUT_DIR = OUTPUT_DIR / "customer_list"
 
 # ── Mode 1: EOD Report — input CSVs ──────────────────────────────
-CONVERSATIONS_CSV = EOD_DATA_DIR / "conversations.csv"
-KPI_RESULTS_CSV = EOD_DATA_DIR / "kpi_results.csv"
-TWILIO_EVENTS_CSV = EOD_DATA_DIR / "twilio_webhook_events.csv"
+# Header signatures for auto-discovery — data_loader scans data/eod/
+# for CSVs and identifies each file by these unique column sets.
+# Files can be named anything as long as the required columns are present.
+EOD_FILE_SIGNATURES = {
+    "conversations": {"agent_id", "call_logs"},
+    "kpi_results":   {"voiceConversationId", "outputJson"},
+    "twilio_events": {"call_sid", "event"},
+}
+
+# Full column requirements validated after signature-based discovery.
+EOD_REQUIRED_COLUMNS = {
+    "conversations": [
+        "conversation_id", "agent_id", "start_timestamp",
+        "end_timestamp", "call_logs", "contact_number",
+    ],
+    "kpi_results": [
+        "voiceConversationId", "voiceAgentId", "outputJson",
+    ],
+    "twilio_events": [
+        "conversation_id", "event",
+    ],
+}
 
 # ── Mode 2: Priority List — input file ───────────────────────────
-# The ONLY line you need to change if the customer list is ever named
-# or located differently. Can also be overridden with --input on the CLI.
-CUSTOMER_LIST_XLSX = CUSTOMER_LIST_DATA_DIR / "sim_expiry_customer_list.xlsx"
+# data_loader auto-discovers the file in data/customer_list/ by scanning
+# for CSV/Excel files that have customer_phone and exp_date columns.
+# Use --input on the CLI to override with an explicit path.
 
 # ── Dynamic agent filter (EOD mode only) ─────────────────────────
 # This is the ONLY line you need to change to run the EOD report for a
@@ -43,11 +62,24 @@ AGENT_ID = 1060
 OUTPUT_FILENAME_TEMPLATE_SINGLE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}.xlsx"
 OUTPUT_FILENAME_TEMPLATE_RANGE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}_to_{end_date}.xlsx"
 
+EOD_VALIDATION_FILENAME_TEMPLATE_SINGLE = "SIM_Expiry_EOD_Validation_{agent_id}_{start_date}.xlsx"
+EOD_VALIDATION_FILENAME_TEMPLATE_RANGE = "SIM_Expiry_EOD_Validation_{agent_id}_{start_date}_to_{end_date}.xlsx"
+
 CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Priority_List_{date}.csv"
-CUSTOMER_LIST_OUTPUT_FILENAME_NO_TIER_TEMPLATE = "SIM_Expiry_Priority_List_{date}_no_tier.csv"
 VALIDATION_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Validation_Report_{date}.xlsx"
 
 REQUIRED_CUSTOMER_LIST_HEADERS = ["customer_phone", "exp_date"]
+
+# ── EOD output folderization ──────────────────────────────────────
+# Each date range gets its own subfolder under output/eod/ to keep
+# reports organised as they accumulate.
+def get_eod_output_dir(start_date, end_date):
+    if start_date == end_date:
+        folder_name = str(start_date)
+    else:
+        folder_name = f"{start_date}_to_{end_date}"
+    return EOD_OUTPUT_DIR / folder_name
+
 
 # ── Timezone ──────────────────────────────────────────────────────
 # Source timestamps are epoch millis (UTC). Plan requires PHT (UTC+8).

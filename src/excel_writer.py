@@ -20,6 +20,9 @@ HEADER_FILL = PatternFill("solid", start_color="1F4E78", end_color="1F4E78")
 HEADER_FONT = Font(name="Arial", bold=True, color="FFFFFF")
 BODY_FONT = Font(name="Arial")
 
+SECTION_HEADER_FILL = PatternFill("solid", start_color="D6E4F0", end_color="D6E4F0")
+SECTION_HEADER_FONT = Font(name="Arial", bold=True, size=11)
+
 
 def resolve_output_path(path: Path) -> Path:
     """
@@ -51,7 +54,12 @@ def _write_dataframe(ws, df: pd.DataFrame):
         ws.append(list(row))
 
     for i, col in enumerate(df.columns, start=1):
-        max_len = max(df[col].astype(str).str.len().max() if not df.empty else 0, len(str(col)))
+        if not df.empty:
+            col_len = df[col].astype(str).str.len().max()
+            col_len = 0 if pd.isna(col_len) else col_len
+        else:
+            col_len = 0
+        max_len = max(col_len, len(str(col)))
         ws.column_dimensions[get_column_letter(i)].width = min(max_len + 4, 45)
 
     for row in ws.iter_rows(min_row=2):
@@ -61,6 +69,20 @@ def _write_dataframe(ws, df: pd.DataFrame):
     ws.freeze_panes = "A2"
 
 
+def _format_section_headers(ws):
+    """Finds known section header cells and applies bold + fill + merge across A:B."""
+    section_names = {"FINOPS", "ISSUES & CHANGES", "TOMORROW'S PLAN"}
+    for row in ws.iter_rows(min_row=2, max_col=1):
+        cell = row[0]
+        if cell.value in section_names:
+            cell.font = SECTION_HEADER_FONT
+            cell.fill = SECTION_HEADER_FILL
+            ws.merge_cells(
+                start_row=cell.row, start_column=1,
+                end_row=cell.row, end_column=2
+            )
+
+
 def write_report(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path):
     """Creates the EOD-mode 2-sheet workbook: 'EOD Report' and 'Call Detail Log'."""
     wb = Workbook()
@@ -68,6 +90,7 @@ def write_report(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path
     eod_sheet = wb.active
     eod_sheet.title = "EOD Report"
     _write_dataframe(eod_sheet, eod_df)
+    _format_section_headers(eod_sheet)
 
     detail_sheet = wb.create_sheet("Call Detail Log")
     _write_dataframe(detail_sheet, call_detail_df)
@@ -91,27 +114,42 @@ def write_priority_list_sheet(df: pd.DataFrame, output_path, sheet_name: str, da
     return output_path
 
 
+_SHEET_TITLES = {
+    "summary": "Summary",
+    "invalid": "Invalid Data",
+    "expired": "Expired Numbers",
+    # EOD validation sheet titles
+    "join_summary": "Join Summary",
+    "field_completeness": "Field Completeness",
+    "calculation_audit": "Calculation Audit",
+    "data_quality_issues": "Data Quality Issues",
+}
+
+
 def write_validation_report(sheets: dict, output_path, date_columns=None):
     """
-    Creates the 4-sheet validation report workbook.
-    sheets keys: "summary", "invalid", "expired", "beyond_14"
+    Creates a multi-sheet validation report workbook.
+    Each key in *sheets* is a sheet identifier; the value is a DataFrame.
+    The first key determines the first (active) sheet; subsequent keys become
+    additional sheets in iteration order.
     """
+    keys = list(sheets.keys())
+    if not keys:
+        raise ValueError("At least one sheet is required")
+
     wb = Workbook()
+    first_key = keys[0]
+    wb.active.title = _SHEET_TITLES.get(first_key, first_key.replace("_", " ").title())
+    _write_dataframe(wb.active, sheets[first_key])
+    if date_columns:
+        _apply_date_format(wb.active, list(sheets[first_key].columns), date_columns)
 
-    ws = wb.active
-    ws.title = "Summary"
-    _write_dataframe(ws, sheets["summary"])
-
-    ws2 = wb.create_sheet("Invalid Data")
-    _write_dataframe(ws2, sheets["invalid"])
-
-    ws3 = wb.create_sheet("Expired Numbers")
-    _write_dataframe(ws3, sheets["expired"])
-    _apply_date_format(ws3, list(sheets["expired"].columns), date_columns)
-
-    ws4 = wb.create_sheet("Outside 14-Day Window")
-    _write_dataframe(ws4, sheets["beyond_14"])
-    _apply_date_format(ws4, list(sheets["beyond_14"].columns), date_columns)
+    for key in keys[1:]:
+        title = _SHEET_TITLES.get(key, key.replace("_", " ").title())
+        ws = wb.create_sheet(title)
+        _write_dataframe(ws, sheets[key])
+        if date_columns:
+            _apply_date_format(ws, list(sheets[key].columns), date_columns)
 
     wb.save(output_path)
     return output_path
@@ -123,13 +161,6 @@ def write_validation_report(sheets: dict, output_path, date_columns=None):
 def write_priority_list_csv(df: pd.DataFrame, output_path):
     """Write the Priority List (valid records) to a CSV file."""
     df.to_csv(output_path, index=False)
-    return output_path
-
-
-def write_priority_list_no_tier_csv(df: pd.DataFrame, output_path):
-    """Write the Priority List without the priority_tier column to a CSV file."""
-    no_tier_df = df.drop(columns=["priority_tier"])
-    no_tier_df.to_csv(output_path, index=False)
     return output_path
 
 

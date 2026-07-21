@@ -9,7 +9,7 @@ Generates one of two reports:
 - **Priority List** — produces two CSVs and one Excel workbook from the customer
   list file provided by Globe: a **Priority List CSV** (valid, urgency-tiered
   numbers), a **Priority List CSV without tier column**, and a **Validation
-  Report** (4-sheet data quality report with invalid/expired/beyond-window records).
+   Report** (3-sheet data quality report with invalid/expired records).
 
 ---
 
@@ -113,7 +113,7 @@ sim_expiry_automation/
 │   ├── call_detail.py         → builds the "Call Detail Log" sheet (one row per call)
 │   ├── eod_report.py          → builds the "EOD Report" sheet (aggregated summary)
 │   ├── customer_list.py       → builds the Priority List + validates/categorizes records (valid, invalid, expired, beyond 14 days); normalizes phone numbers to +63XXXXXXXXXX
-│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (2-sheet EOD, 4-sheet validation report) and to .csv (priority list, no-tier priority list)
+│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (2-sheet EOD, multi-sheet validation report) and to .csv (priority list, no-tier priority list)
 ├── main.py                    → entry point; dispatches to run_eod() or run_priority_list() based on --mode
 ├── run_samples.ps1            → optional: runs several scenarios in one go
 ├── requirements.txt           → pandas, openpyxl
@@ -177,12 +177,12 @@ missing, processing stops immediately with a clear error message.
 
 **Output:** three files in `output/customer_list/{date}/` (date-stamped subfolder):
 
-- `SIM_Expiry_Priority_List_{date}.csv` — valid records only (0–14 days remaining),
-  all columns including `priority_tier`
-- `SIM_Expiry_Priority_List_{date}_no_tier.csv` — same valid records, same headers,
+- `SIM_Expiry_Priority_List_{date}.csv` — all valid records (0–14 days + beyond-14-day),
+  with `customer_phone` normalized to `+63XXXXXXXXXX`, all columns including `priority_tier`
+- `SIM_Expiry_Priority_List_{date}_no_tier.csv` — same records, same headers,
   without the `priority_tier` column
 - `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
-  (4 sheets, unchanged format)
+  (3 sheets: Summary, Invalid Data, Expired Numbers)
 
 **Validation rules** (applied to every record in order):
 
@@ -199,14 +199,13 @@ Phone and date chains are independent (both are reported). Duplicate check alway
 runs. Cascading errors are suppressed (e.g. invalid PH code does not also report
 invalid length). Multiple reasons are joined with `"; "`.
 
-**Validation Report — 4 sheets:**
+**Validation Report — 3 sheets:**
 
 | Sheet | Content |
 |---|---|
 | Summary | Record counts per category with percentages |
 | Invalid Data | Rows that failed validation with concatenated `reason` column |
 | Expired Numbers | Already-expired records (`days_remaining < 0`) |
-| Outside 14-Day Window | Lowest-priority records (`days_remaining > 14`) |
 
 **Priority Tier definitions** (per the Globe SIM Expiry Scale-Up plan):
 
@@ -217,8 +216,8 @@ invalid length). Multiple reasons are joined with `"; "`.
 | TIER 2 | 4–7 | Soon |
 | TIER 3 | 8–14 | Watch |
 
-Records with `days_remaining > 14` are routed to the "Outside 14-Day Window"
-sheet in the Validation Report (not assigned a tier).
+Records with `days_remaining > 14` are included in both CSV outputs alongside
+0–14-day records (they appear together sorted by urgency).
 
 Both CSV output files are sorted by `days_remaining` ascending (most urgent
 first), with tier as a tiebreaker.
