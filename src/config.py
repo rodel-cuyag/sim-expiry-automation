@@ -46,9 +46,9 @@ EOD_REQUIRED_COLUMNS = {
 }
 
 # ── Mode 2: Priority List — input file ───────────────────────────
-# The ONLY line you need to change if the customer list is ever named
-# or located differently. Can also be overridden with --input on the CLI.
-CUSTOMER_LIST_XLSX = CUSTOMER_LIST_DATA_DIR / "sim_expiry_customer_list.xlsx"
+# data_loader auto-discovers the file in data/customer_list/ by scanning
+# for CSV/Excel files that have customer_phone and exp_date columns.
+# Use --input on the CLI to override with an explicit path.
 
 # ── Dynamic agent filter (EOD mode only) ─────────────────────────
 # This is the ONLY line you need to change to run the EOD report for a

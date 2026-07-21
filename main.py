@@ -56,7 +56,7 @@ def parse_args():
     )
     parser.add_argument(
         "--input", type=str, default=None,
-        help="[priority-list mode] Path to the customer list workbook, overriding config.CUSTOMER_LIST_XLSX.",
+        help="[priority-list mode] Path to the customer list workbook. Omit to auto-discover in data/customer_list/.",
     )
 
     return parser.parse_args()
@@ -104,12 +104,9 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
 # ── Mode 2: Priority List ─────────────────────────────────────────
 
 def run_priority_list(as_of_date=None, input_path=None):
-    from pathlib import Path
-    input_path = Path(input_path) if input_path else None
-
-    # 1. Validate + load the customer list workbook.
-    data_loader.validate_customer_list_file(input_path)
-    raw_df = data_loader.load_customer_list(input_path)
+    # 1. Resolve path (auto-discover or explicit --input), then load.
+    path = data_loader.resolve_customer_list_path(input_path)
+    raw_df = data_loader.load_customer_list(path)
 
     if raw_df.empty:
         print("Customer list is empty. Nothing to report.")

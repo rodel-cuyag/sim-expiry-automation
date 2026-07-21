@@ -14,6 +14,8 @@ column headers (signature matching). Files can be named anything —
 the required columns are present.
 """
 
+from pathlib import Path
+
 import pandas as pd
 from src import config
 from src.progress import Spinner
@@ -146,39 +148,101 @@ def load_all() -> dict:
 
 # ── Mode 2: Priority List ─────────────────────────────────────────
 
-def validate_customer_list_file(path=None):
+def resolve_customer_list_path(path=None):
     """
-    Checks that the customer list workbook exists before we try to read
-    it. `path` lets --input override the default config location.
-    """
-    target = path or config.CUSTOMER_LIST_XLSX
+    Resolve the customer list input file path.
 
-    if not target.exists():
+    If a path is given (via --input): verify it exists and return it.
+    If not: scan data/customer_list/ and discover the file by matching
+    its column headers against REQUIRED_CUSTOMER_LIST_HEADERS.
+
+    Returns a Path to the file. Raises MissingInputFileError on failure.
+    """
+    if path is not None:
+        target = Path(path) if not isinstance(path, Path) else path
+        if not target.exists():
+            message = "\n".join([
+                "",
+                "=" * 60,
+                "MISSING INPUT FILE — cannot generate the priority list.",
+                "=" * 60,
+                f"Expected file: {target}",
+                "",
+                "Fix: check that the file exists at the path above,",
+                "or omit --input to auto-discover in data/customer_list/.",
+                "=" * 60,
+                "",
+            ])
+            raise MissingInputFileError(message)
+        return target
+
+    # Auto-discover: scan data/customer_list/ for files with matching headers.
+    csv_signature = set(config.REQUIRED_CUSTOMER_LIST_HEADERS)
+    matches = []
+
+    for ext in ("*.csv", "*.xlsx", "*.xls"):
+        for fpath in sorted(config.CUSTOMER_LIST_DATA_DIR.glob(ext)):
+            try:
+                if fpath.suffix.lower() == ".csv":
+                    df = pd.read_csv(fpath, nrows=0)
+                else:
+                    df = pd.read_excel(fpath, nrows=0)
+                if csv_signature.issubset(set(df.columns)):
+                    matches.append(fpath)
+            except Exception:
+                continue
+
+    if len(matches) == 1:
+        return matches[0]
+
+    if len(matches) > 1:
+        names = ", ".join(f"'{f.name}'" for f in matches)
         message = "\n".join([
             "",
             "=" * 60,
-            "MISSING INPUT FILE — cannot generate the priority list.",
+            "AMBIGUOUS — multiple files match the customer list headers.",
             "=" * 60,
-            f"Expected file: {target}",
+            f"Found: {names}",
             "",
-            "Fix: place the customer list workbook at the path above",
-            "(or pass --input <path> to point at a different location),",
-            "then run the script again.",
+            "All these files have 'customer_phone' and 'exp_date' columns.",
+            "Use --input <path> to specify which one to use.",
             "=" * 60,
             "",
         ])
         raise MissingInputFileError(message)
 
+    # Zero matches — list everything in the directory for clarity.
+    all_entries = sorted(
+        f.name for f in config.CUSTOMER_LIST_DATA_DIR.glob("*")
+        if f.is_file() and f.name != ".gitkeep"
+    )
+    found = ", ".join(all_entries) if all_entries else "(empty directory)"
+    message = "\n".join([
+        "",
+        "=" * 60,
+        "MISSING INPUT FILE — cannot generate the priority list.",
+        "=" * 60,
+        f"Expected headers: {', '.join(config.REQUIRED_CUSTOMER_LIST_HEADERS)}",
+        f"Scanned folder:   {config.CUSTOMER_LIST_DATA_DIR}",
+        f"Files found:      {found}",
+        "",
+        "Fix: place a CSV or Excel file with 'customer_phone' and 'exp_date'",
+        "columns in the folder above, or use --input <path> to point at",
+        "a specific file elsewhere.",
+        "=" * 60,
+        "",
+    ])
+    raise MissingInputFileError(message)
 
-def load_customer_list(path=None) -> pd.DataFrame:
+
+def load_customer_list(path) -> pd.DataFrame:
     """Load the raw SIM expiry customer list (customer_phone, exp_date).
     Supports .xlsx and .csv — auto-detected from file extension."""
-    target = path or config.CUSTOMER_LIST_XLSX
-    with Spinner(f"Loading {target.name}"):
-        suffix = target.suffix.lower()
+    with Spinner(f"Loading {path.name}"):
+        suffix = path.suffix.lower()
         if suffix == ".csv":
-            return pd.read_csv(target)
-        return pd.read_excel(target, sheet_name=0)
+            return pd.read_csv(path)
+        return pd.read_excel(path, sheet_name=0)
 
 
 def validate_customer_list_headers(df: pd.DataFrame):
