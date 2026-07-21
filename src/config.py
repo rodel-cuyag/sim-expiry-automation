@@ -62,10 +62,24 @@ AGENT_ID = 1060
 OUTPUT_FILENAME_TEMPLATE_SINGLE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}.xlsx"
 OUTPUT_FILENAME_TEMPLATE_RANGE = "SIM_Expiry_EOD_Report_{agent_id}_{start_date}_to_{end_date}.xlsx"
 
+EOD_VALIDATION_FILENAME_TEMPLATE_SINGLE = "SIM_Expiry_EOD_Validation_{agent_id}_{start_date}.xlsx"
+EOD_VALIDATION_FILENAME_TEMPLATE_RANGE = "SIM_Expiry_EOD_Validation_{agent_id}_{start_date}_to_{end_date}.xlsx"
+
 CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Priority_List_{date}.csv"
 VALIDATION_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Validation_Report_{date}.xlsx"
 
 REQUIRED_CUSTOMER_LIST_HEADERS = ["customer_phone", "exp_date"]
+
+# ── EOD output folderization ──────────────────────────────────────
+# Each date range gets its own subfolder under output/eod/ to keep
+# reports organised as they accumulate.
+def get_eod_output_dir(start_date, end_date):
+    if start_date == end_date:
+        folder_name = str(start_date)
+    else:
+        folder_name = f"{start_date}_to_{end_date}"
+    return EOD_OUTPUT_DIR / folder_name
+
 
 # ── Timezone ──────────────────────────────────────────────────────
 # Source timestamps are epoch millis (UTC). Plan requires PHT (UTC+8).

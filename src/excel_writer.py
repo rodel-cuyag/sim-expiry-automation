@@ -100,6 +100,11 @@ _SHEET_TITLES = {
     "summary": "Summary",
     "invalid": "Invalid Data",
     "expired": "Expired Numbers",
+    # EOD validation sheet titles
+    "join_summary": "Join Summary",
+    "field_completeness": "Field Completeness",
+    "calculation_audit": "Calculation Audit",
+    "data_quality_issues": "Data Quality Issues",
 }
 
 
@@ -107,12 +112,21 @@ def write_validation_report(sheets: dict, output_path, date_columns=None):
     """
     Creates a multi-sheet validation report workbook.
     Each key in *sheets* is a sheet identifier; the value is a DataFrame.
+    The first key determines the first (active) sheet; subsequent keys become
+    additional sheets in iteration order.
     """
-    wb = Workbook()
-    wb.active.title = _SHEET_TITLES.get("summary", "Summary")
-    _write_dataframe(wb.active, sheets["summary"])
+    keys = list(sheets.keys())
+    if not keys:
+        raise ValueError("At least one sheet is required")
 
-    for key in list(sheets.keys())[1:]:
+    wb = Workbook()
+    first_key = keys[0]
+    wb.active.title = _SHEET_TITLES.get(first_key, first_key.replace("_", " ").title())
+    _write_dataframe(wb.active, sheets[first_key])
+    if date_columns:
+        _apply_date_format(wb.active, list(sheets[first_key].columns), date_columns)
+
+    for key in keys[1:]:
         title = _SHEET_TITLES.get(key, key.replace("_", " ").title())
         ws = wb.create_sheet(title)
         _write_dataframe(ws, sheets[key])

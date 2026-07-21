@@ -21,7 +21,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader
+from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report
 from src.data_loader import MissingInputFileError, MissingHeaderError
 
 
@@ -88,17 +88,30 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
         (detail_log["Call Date (PHT)"] >= start_date) & (detail_log["Call Date (PHT)"] <= end_date)
     ].reset_index(drop=True)
 
-    # 6. Write both sheets to a single Excel workbook, into output/eod/.
-    config.EOD_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if start_date == end_date:
-        filename = config.OUTPUT_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
-    else:
-        filename = config.OUTPUT_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
-    output_path = excel_writer.resolve_output_path(config.EOD_OUTPUT_DIR / filename)
-    excel_writer.write_report(eod_df, range_detail_log, output_path)
+    # 6. Write both sheets to a date-stamped subfolder inside output/eod/.
+    eod_dir = config.get_eod_output_dir(start_date, end_date)
+    eod_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"EOD report generated: {output_path}")
-    return output_path
+    if start_date == end_date:
+        report_filename = config.OUTPUT_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
+        val_filename = config.EOD_VALIDATION_FILENAME_TEMPLATE_SINGLE.format(agent_id=agent_id, start_date=start_date)
+    else:
+        report_filename = config.OUTPUT_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
+        val_filename = config.EOD_VALIDATION_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
+
+    report_path = excel_writer.resolve_output_path(eod_dir / report_filename)
+    excel_writer.write_report(eod_df, range_detail_log, report_path)
+    print(f"EOD report generated: {report_path}")
+
+    # 7. Build and write the validation report alongside the EOD report.
+    val_sheets = validation_report.build_validation_report(
+        working_table, detail_log, eod_df, start_date, end_date, agent_id,
+    )
+    val_path = excel_writer.resolve_output_path(eod_dir / val_filename)
+    excel_writer.write_validation_report(val_sheets, val_path)
+    print(f"Validation report generated: {val_path}")
+
+    return report_path
 
 
 # ── Mode 2: Priority List ─────────────────────────────────────────
