@@ -4,12 +4,14 @@ Generates one of two reports:
 
 - **EOD Report** — a 2-sheet Excel workbook (**EOD Report** + **Call Detail
   Log**) from 3 raw source CSVs (`conversations`, `kpi_results`,
-  `twilio_webhook_events`), filtered to a single agent and a calling-day range.
+  `twilio_webhook_events`), filtered to a single agent and a calling-day
+  range. Also writes a companion **4-sheet Validation Report** workbook
+  alongside it (join/data-quality diagnostics for that same run).
 
-- **Priority List** — produces two CSVs and one Excel workbook from the customer
-  list file provided by Globe: a **Priority List CSV** (valid, urgency-tiered
-  numbers), a **Priority List CSV without tier column**, and a **Validation
-   Report** (3-sheet data quality report with invalid/expired records).
+- **Priority List** — produces one CSV and one Excel workbook from the
+  customer list file provided by Globe: a **Priority List CSV** (valid
+  numbers, sorted by urgency) and a **Validation Report** (3-sheet data
+  quality report with invalid/expired records).
 
 ---
 
@@ -44,14 +46,17 @@ Generates one of two reports:
    pip install -r requirements.txt
 ```
 
-7. **Add your input files** into the appropriate subdirectories under `data/`:
+7. **Add your input files** into the appropriate subdirectories under `data/`.
+   Files are auto-discovered by matching their column headers, so they can be
+   named anything — the names below are just examples:
 
-   **EOD mode** (3 CSVs in `data/eod/`):
-   - `data/eod/conversations.csv`
-   - `data/eod/kpi_results.csv`
-   - `data/eod/twilio_webhook_events.csv`
+   **EOD mode** (3 CSVs in `data/eod/`, one matching each required column set):
+   - `data/eod/conversations.csv` (needs `conversation_id`, `agent_id`, `start_timestamp`, `end_timestamp`, `call_logs`, `contact_number`)
+   - `data/eod/kpi_results.csv` (needs `voiceConversationId`, `voiceAgentId`, `outputJson`)
+   - `data/eod/twilio_webhook_events.csv` (needs `conversation_id`, `event`)
 
-   **Priority List mode** (single workbook in `data/customer_list/`):
+   **Priority List mode** (one CSV or Excel file in `data/customer_list/`,
+   needs `customer_phone` and `exp_date` columns):
    - `data/customer_list/sim_expiry_customer_list.xlsx`
 
 8. **Run it**
@@ -59,14 +64,10 @@ Generates one of two reports:
    python main.py                                                       # EOD mode (default), most recent date, config AGENT_ID
    python main.py --mode priority-list                                   # Priority List mode, as-of today (PHT)
    python main.py --mode priority-list --as-of-date 2026-07-10           # Priority List, specific date
-    python main.py --mode priority-list --input path/to/other.xlsx        # Priority List, override input file
+   python main.py --mode priority-list --input path/to/other.xlsx        # Priority List, override input file
 ```
-   The generated files land in `output/eod/` (EOD mode) or
-   `output/customer_list/{date}/` (Priority List mode, date-stamped subfolder).
-
-   Or run `.\run_samples.ps1` (Windows PowerShell) to exercise several
-   scenarios at once — default run, single day, multi-day range, a
-   different agent, and the date-validation error cases.
+   The generated files land in `output/eod/{date-or-range}/` (EOD mode) or
+   `output/customer_list/{date}/` (Priority List mode) — both date-stamped subfolders.
 
 ---
 
@@ -76,8 +77,8 @@ Generates one of two reports:
 |---|---|
 | Python 3.10+ | Core language |
 | `pandas` | CSV loading, cleaning, joining, aggregation |
-| `openpyxl` | Writing formatted Excel workbooks (EOD: 2-sheet / Validation Report: 4-sheet) |
-| `pandas.to_csv` | Writing Priority List CSVs (with and without tier column) |
+| `openpyxl` | Writing formatted Excel workbooks (EOD Report: 2-sheet, EOD Validation Report: 4-sheet, Priority List Validation Report: 3-sheet) |
+| `pandas.to_csv` | Writing the Priority List CSV |
 | VS Code + Python extension | Editor / debugger |
 | `venv` (built into Python, no separate install) | Isolated dependency environment |
 
@@ -96,26 +97,27 @@ safer long-term maintenance — worth it even for a small script like this.
 ```
 sim_expiry_automation/
 ├── data/
-│   ├── customer_list/         → input: sim_expiry_customer_list.xlsx or .csv (Priority List mode)
-│   └── eod/                   → input: 3 CSVs (EOD mode)
+│   ├── customer_list/         → input: any CSV/Excel with customer_phone + exp_date columns (Priority List mode)
+│   └── eod/                   → input: 3 CSVs, auto-matched by column headers (EOD mode)
 ├── output/
 │   ├── customer_list/
 │   │   └── {date}/            → generated: SIM_Expiry_Priority_List_{date}.csv
-│   │                           + SIM_Expiry_Priority_List_{date}_no_tier.csv
 │   │                           + SIM_Expiry_Validation_Report_{date}.xlsx
-│   └── eod/                   → generated: SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx
+│   └── eod/
+│       └── {date-or-range}/   → generated: SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx
+│                                + SIM_Expiry_EOD_Validation_{agent_id}_{date}.xlsx
 ├── src/
 │   ├── config.py              → all settings in one place (paths, AGENT_ID, timezone, filename templates, required headers)
 │   ├── validators.py          → validates date CLI args (--start-date/--end-date, --as-of-date)
-│   ├── data_loader.py         → reads input files off disk; validates they exist and have required headers
+│   ├── data_loader.py         → auto-discovers input files by column headers; validates required headers are present
 │   ├── progress.py            → spinning "loading..." animation in the terminal
 │   ├── preprocessing.py       → cleans data, parses JSON, filters to one agent, joins 3 sources (EOD mode)
 │   ├── call_detail.py         → builds the "Call Detail Log" sheet (one row per call)
 │   ├── eod_report.py          → builds the "EOD Report" sheet (aggregated summary)
-│   ├── customer_list.py       → builds the Priority List + validates/categorizes records (valid, invalid, expired, beyond 14 days); normalizes phone numbers to +63XXXXXXXXXX
-│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (2-sheet EOD, multi-sheet validation report) and to .csv (priority list, no-tier priority list)
+│   ├── customer_list.py       → builds the Priority List + validates/categorizes records (valid, invalid, expired); normalizes phone numbers to +63XXXXXXXXXX
+│   ├── validation_report.py   → builds the EOD mode's 4-sheet Validation Report (Join Summary, Field Completeness, Calculation Audit, Data Quality Issues)
+│   └── excel_writer.py        → writes DataFrames to formatted .xlsx (EOD Report, EOD Validation Report, Priority List Validation Report) and the Priority List to .csv
 ├── main.py                    → entry point; dispatches to run_eod() or run_priority_list() based on --mode
-├── run_samples.ps1            → optional: runs several scenarios in one go
 ├── requirements.txt           → pandas, openpyxl
 └── README.md                  → this file
 ```
@@ -146,12 +148,18 @@ python main.py --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29
 
 **Output naming:** single-day → `SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx`;
 multi-day → `SIM_Expiry_EOD_Report_{agent_id}_{start}_to_{end}.xlsx`.
-Lands in `output/eod/`.
+Lands in `output/eod/{date-or-range}/`.
 
 **Report structure:** the EOD Report sheet is **one aggregated row** for the
 whole period (not one row per day), with a `Report Period` and `Days in Range`
 field. The Call Detail Log sheet lists every call in that period with a
 `Call Date (PHT)` column so you can still see which day each row belongs to.
+
+**Also generated:** a companion `SIM_Expiry_EOD_Validation_{agent_id}_{date}.xlsx`
+workbook is written alongside the EOD Report on every run, in the same
+output folder — a 4-sheet diagnostics report (Join Summary, Field
+Completeness, Calculation Audit, Data Quality Issues) covering that same
+period's source data.
 
 ### Mode 2: Priority List (`--mode priority-list`)
 
@@ -163,9 +171,9 @@ python main.py --mode priority-list --input path/to/other.csv     # override inp
 
 - `--as-of-date`: reference date in `YYYY-MM-DD` used to compute
   `days_remaining`. Defaults to today in PHT.
-- `--input`: override the customer list file path
-  (default: `data/customer_list/sim_expiry_customer_list.xlsx`).
-  Supports both `.xlsx` and `.csv`.
+- `--input`: override the customer list file path. If omitted, the file is
+  auto-discovered in `data/customer_list/` by matching column headers
+  (`customer_phone` + `exp_date`) — supports both `.xlsx` and `.csv`.
 
 **Header validation:** before any processing, the script checks that the input
 file contains the required columns `customer_phone` and `exp_date`. If either is
@@ -175,29 +183,30 @@ missing, processing stops immediately with a clear error message.
 `+63XXXXXXXXXX` (no spaces, consistent prefix) regardless of the input format
 (e.g. `+63 998 766 5432` → `+639987665432`, `639212223242` → `+639212223242`).
 
-**Output:** three files in `output/customer_list/{date}/` (date-stamped subfolder):
+**Output:** two files in `output/customer_list/{date}/` (date-stamped subfolder):
 
-- `SIM_Expiry_Priority_List_{date}.csv` — all valid records (0–14 days + beyond-14-day),
-  with `customer_phone` normalized to `+63XXXXXXXXXX`, all columns including `priority_tier`
-- `SIM_Expiry_Priority_List_{date}_no_tier.csv` — same records, same headers,
-  without the `priority_tier` column
+- `SIM_Expiry_Priority_List_{date}.csv` — every record with
+  `days_remaining >= 0` (no upper cutoff), with `customer_phone` normalized
+  to `+63XXXXXXXXXX`, sorted by `days_remaining` ascending (most urgent first)
 - `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
   (3 sheets: Summary, Invalid Data, Expired Numbers)
 
-**Validation rules** (applied to every record in order):
+**Validation rules** (applied to every record):
 
 | # | Check | Fails when... |
 |---|---|---|
 | 1 | Missing phone | `customer_phone` is blank |
-| 2 | Missing date | `exp_date` is blank |
-| 3 | Invalid date | `exp_date` cannot be parsed |
-| 4 | Duplicate phone | Same `customer_phone` appears more than once |
-| 5 | Invalid PH code | Number doesn't start with `+63` or `63` |
-| 6 | Invalid length | Not exactly 12 digits after stripping non-digits |
+| 2 | Invalid PH code | Number doesn't start with `+63` or `63` |
+| 3 | Invalid length | Not exactly 12 digits after stripping non-digits |
+| 4 | Missing date | `exp_date` is blank |
+| 5 | Invalid date | `exp_date` cannot be parsed |
+| 6 | Duplicate phone | Same `customer_phone` appears more than once |
 
-Phone and date chains are independent (both are reported). Duplicate check always
-runs. Cascading errors are suppressed (e.g. invalid PH code does not also report
-invalid length). Multiple reasons are joined with `"; "`.
+Checks 1–3 are a phone chain (stops at the first failure — e.g. a missing
+phone won't also report an invalid code); checks 4–5 are a separate date
+chain that runs independently of the phone chain. Check 6 (duplicate) always
+runs globally, in addition to whatever the phone/date chains found. Multiple
+reasons on the same row are joined with `"; "`.
 
 **Validation Report — 3 sheets:**
 
@@ -207,21 +216,6 @@ invalid length). Multiple reasons are joined with `"; "`.
 | Invalid Data | Rows that failed validation with concatenated `reason` column |
 | Expired Numbers | Already-expired records (`days_remaining < 0`) |
 
-**Priority Tier definitions** (per the Globe SIM Expiry Scale-Up plan):
-
-| Tier | Days remaining | Meaning |
-|------|---------------|---------|
-| EXPIRED | < 0 | Past expiry |
-| TIER 1 | 0–3 | Urgent |
-| TIER 2 | 4–7 | Soon |
-| TIER 3 | 8–14 | Watch |
-
-Records with `days_remaining > 14` are included in both CSV outputs alongside
-0–14-day records (they appear together sorted by urgency).
-
-Both CSV output files are sorted by `days_remaining` ascending (most urgent
-first), with tier as a tiebreaker.
-
 ---
 
 ## 5. Known data caveats (read before trusting the numbers)
@@ -230,28 +224,24 @@ first), with tier as a tiebreaker.
   (`twilio_webhook_events.csv`'s `event` column), never from
   `conversations.status`. If a conversation's `conversation_id` has no
   matching row in `twilio_webhook_events.csv`, **Status is left blank** —
-  it is not guessed or backfilled from anything else.
-  `twilio_webhook_events.csv` only has 128 rows and covers a handful of
-  agents; **agent 1060 currently has zero matches**, so running the
-  report for 1060 today will produce an entirely blank Status column.
-  That's expected, not a bug — it'll start populating automatically, no
-  code changes needed, once Twilio coverage exists for that agent.
+  it is not guessed or backfilled from anything else. That's expected, not
+  a bug — it'll start populating automatically, no code changes needed,
+  once Twilio coverage exists for the agent being reported on.
 - **Call duration is sourced from `call_logs.metrics.total_duration_ms`,
-  not `end_timestamp`.** Re-verified against the fuller dataset:
-  `end_timestamp` is frequently identical to `start_timestamp` (zero
-  duration) or earlier than it (negative duration), and doesn't
-  correlate with the real call length recorded in `call_logs`. It's
-  epoch-millisecond UTC like `start_timestamp` and converts to a
+  not `end_timestamp`.** `end_timestamp` frequently ends up identical to
+  `start_timestamp` (zero duration) or earlier than it (negative duration),
+  and doesn't correlate with the real call length recorded in `call_logs`.
+  It's epoch-millisecond UTC like `start_timestamp` and converts to a
   technically valid date, but the *value itself* isn't a trustworthy
-  call-end moment — so it's still excluded from duration math.
+  call-end moment — so it's excluded from duration math.
   (`start_timestamp` is reliable, and is what drives the Call Date /
   `--start-date`/`--end-date` filtering.)
-- **Contact Number is partially recoverable, not fully.** ~95% of rows
-  arrive as Excel scientific notation (e.g. `"6.39178E+11"`), which only
-  keeps 5-6 significant digits — the real trailing digits were lost
-  *upstream*, before this script ever sees the data, and can't be
-  reconstructed from this file alone. The Call Detail Log now has a
-  **Contact Number Reliability** column that's explicit about this:
+- **Contact Number is partially recoverable, not fully.** Some rows arrive
+  as Excel scientific notation (e.g. `"6.39178E+11"`), which only keeps
+  5-6 significant digits — the real trailing digits were lost *upstream*,
+  before this script ever sees the data, and can't be reconstructed from
+  this file alone. The Call Detail Log has a **Contact Number Reliability**
+  column that's explicit about this:
   - `Complete` — the number arrived uncorrupted and was normalized to
     `63XXXXXXXXXX`.
   - `Complete (recovered from Twilio)` — the number was corrupted in
@@ -263,24 +253,22 @@ first), with tier as a tiebreaker.
     number is shown as-is rather than presented as if it were complete.
     Don't use these for actual outreach without going back to Globe's
     source system.
-- **Priority Tier is blank in EOD mode.** `call_config` is `"{}"` (empty)
-  for every agent-1060 row in the EOD data, so there's no `days_remaining`
-  to derive urgency from in that mode. Wire this up once that field is
-  populated for this agent. The standalone Priority List mode
-  (`--mode priority-list`) does not have this limitation — it computes
-  tiers directly from the `exp_date` column in the customer list workbook.
-- **Priority List mode now validates every record.** Invalid records
-  (bad phone format, unparseable date, duplicates) are written to the
+- **Priority List mode validates every record.** Invalid records (bad
+  phone format, unparseable date, duplicates) are written to the
   **Invalid Data** sheet of the Validation Report with a specific reason.
-  The Priority List workbook itself contains only validated records
-  (0–14 days remaining). The Validation Report also captures expired and
-  beyond-window records in separate sheets.
+  The Priority List CSV itself contains only validated records with
+  `days_remaining >= 0`; already-expired records are captured separately
+  in the Validation Report's **Expired Numbers** sheet.
 - **`call_logs` schema varies by agent.** Agent 1060 stores it as
-  `{"metrics": {"total_duration_ms": ...}}`. Other agents (confirmed on
-  agent 37, among others) store it as a list of turn-by-turn bot/user
-  events instead — a different shape entirely. Duration extraction
-  handles this defensively (returns blank rather than crashing) but
-  doesn't currently parse that alternate schema for duration; that's a
-  known gap if/when this pipeline is pointed at those agents.
-- **LLM Inference Cost, P0/P1 issue counts** are shown as `N/A` — no
-  source data currently supports them.
+  `{"metrics": {"total_duration_ms": ...}}`. Other agents store it as a
+  list of turn-by-turn bot/user events instead — a different shape
+  entirely. Duration extraction handles this defensively (returns blank
+  rather than crashing) but doesn't currently parse that alternate schema
+  for duration; that's a known gap if/when this pipeline is pointed at
+  those agents.
+- **LLM Inference Cost, P0/P1 issue counts, and several other EOD Report
+  fields** show a literal `[PLACEHOLDER - ...]` string (e.g.
+  `[PLACEHOLDER - Consult team]`) — no source data currently supports
+  them. This is separate from `N/A`, which only appears in the Call
+  Detail Log's "Agreed to Keep SIM Active" column when KPI data is
+  missing for that call.
