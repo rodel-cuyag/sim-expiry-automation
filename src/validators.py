@@ -13,6 +13,11 @@ class InvalidDateRangeError(Exception):
     pass
 
 
+class MissingAgentIdError(Exception):
+    """Raised when --agent-id is required (EOD mode) but was not given."""
+    pass
+
+
 def parse_single_date(date_str: str) -> datetime.date:
     """Validates and parses a single YYYY-MM-DD date string. Public so it
     can be reused by any CLI flag that takes one date (e.g. --as-of-date)."""
@@ -57,3 +62,13 @@ def parse_date_range(start_str: str, end_str: str):
         )
 
     return start_date, end_date
+
+
+def require_agent_id(agent_id):
+    """Validates --agent-id was given (EOD mode). No default is applied here —
+    the caller must supply it explicitly."""
+    if agent_id is None:
+        raise MissingAgentIdError(
+            "--agent-id is required for --mode eod."
+        )
+    return agent_id
