@@ -19,6 +19,7 @@ from pathlib import Path
 import pandas as pd
 from src import config
 from src.progress import Spinner
+from src.filename_dates import parse_date_from_filename, UnparsableFilenameDateError
 
 
 class MissingInputFileError(Exception):
@@ -192,6 +193,15 @@ def resolve_customer_list_path(path=None):
             except Exception:
                 continue
 
+    # .txt files have no header row to match — instead, candidacy is based
+    # on whether the filename itself encodes a parseable expiry date.
+    for fpath in sorted(config.CUSTOMER_LIST_DATA_DIR.glob("*.txt")):
+        try:
+            parse_date_from_filename(fpath.name)
+            matches.append(fpath)
+        except UnparsableFilenameDateError:
+            continue
+
     if len(matches) == 1:
         return matches[0]
 
@@ -204,7 +214,9 @@ def resolve_customer_list_path(path=None):
             "=" * 60,
             f"Found: {names}",
             "",
-            "All these files have 'customer_phone' and 'exp_date' columns.",
+            "All these files are recognized as valid customer list inputs",
+            "(CSV/Excel with 'customer_phone' + 'exp_date' columns, or .txt",
+            "with a parseable expiry date in the filename).",
             "Use --input <path> to specify which one to use.",
             "=" * 60,
             "",
@@ -237,12 +249,33 @@ def resolve_customer_list_path(path=None):
 
 def load_customer_list(path) -> pd.DataFrame:
     """Load the raw SIM expiry customer list (customer_phone, exp_date).
-    Supports .xlsx and .csv — auto-detected from file extension."""
+    Supports .csv, .xlsx/.xls, and .txt (one phone number per line, with
+    exp_date derived from the filename) — auto-detected from file extension."""
     with Spinner(f"Loading {path.name}"):
         suffix = path.suffix.lower()
         if suffix == ".csv":
             return pd.read_csv(path)
+        if suffix == ".txt":
+            return _load_customer_list_txt(path)
         return pd.read_excel(path, sheet_name=0)
+
+
+def _load_customer_list_txt(path: Path) -> pd.DataFrame:
+    """
+    Loads a raw phone-number list: one phone number per line, no header,
+    no exp_date column. The expiry date isn't in the file — it's parsed
+    from the filename (see filename_dates.py) and applied to every row.
+    """
+    exp_date = parse_date_from_filename(path.name)
+    phones = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            phones.append(line.split()[-1])  # defensive: last token, in case of a stray leading index column
+
+    return pd.DataFrame({"customer_phone": phones, "exp_date": exp_date})
 
 
 def validate_customer_list_headers(df: pd.DataFrame):

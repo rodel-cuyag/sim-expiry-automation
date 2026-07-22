@@ -2,8 +2,6 @@
 config.py
 ---------
 Single source of truth for file paths and settings.
-Change AGENT_ID here (or via --agent-id CLI flag) to point the whole
-EOD pipeline at a different agent without touching any other file.
 """
 
 from pathlib import Path
@@ -50,11 +48,6 @@ EOD_REQUIRED_COLUMNS = {
 # for CSV/Excel files that have customer_phone and exp_date columns.
 # Use --input on the CLI to override with an explicit path.
 
-# ── Dynamic agent filter (EOD mode only) ─────────────────────────
-# This is the ONLY line you need to change to run the EOD report for a
-# different agent. It can also be overridden with --agent-id on the CLI.
-AGENT_ID = 1060
-
 # ── Output file naming ────────────────────────────────────────────
 # Filled in with the report date(s) at runtime (see main.py).
 # Single-day EOD runs (start == end) use the plain template; multi-day
@@ -69,6 +62,9 @@ CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Priority_List_{date}.csv"
 VALIDATION_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Validation_Report_{date}.xlsx"
 
 REQUIRED_CUSTOMER_LIST_HEADERS = ["customer_phone", "exp_date"]
+
+# Constant ref_id value stamped on every row of the Priority List CSV output.
+CUSTOMER_LIST_REF_ID = "GOCUC10"
 
 # ── EOD output folderization ──────────────────────────────────────
 # Each date range gets its own subfolder under output/eod/ to keep

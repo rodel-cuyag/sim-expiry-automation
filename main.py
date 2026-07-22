@@ -6,9 +6,8 @@ Entry point. Run this file to generate either:
   - Mode 2 "priority-list": SIM Expiry Priority List workbook
 
 Usage:
-    python main.py                                                       # EOD mode (default), most recent date, default agent
-    python main.py --start-date 2026-06-25 --end-date 2026-06-29         # EOD mode, a date range
-    python main.py --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29
+    python main.py --mode eod --agent-id 1060                                                       # EOD mode, most recent date
+    python main.py --mode eod --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29         # EOD mode, a date range
 
     python main.py --mode priority-list                                  # Priority List mode, as-of today (PHT)
     python main.py --mode priority-list --as-of-date 2026-07-10          # Priority List mode, as-of a specific date
@@ -23,13 +22,14 @@ import pandas as pd
 
 from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report
 from src.data_loader import MissingInputFileError, MissingHeaderError
+from src.filename_dates import UnparsableFilenameDateError
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate SIM Expiry reports.")
     parser.add_argument(
-        "--mode", choices=["eod", "priority-list"], default="eod",
-        help="Which report to generate: 'eod' (EOD Report + Call Detail Log, default) "
+        "--mode", choices=["eod", "priority-list"], required=True,
+        help="Which report to generate: 'eod' (EOD Report + Call Detail Log) "
              "or 'priority-list' (SIM Expiry Priority List from the customer list workbook).",
     )
 
@@ -44,8 +44,8 @@ def parse_args():
         help="[eod mode] End of the report period, format YYYY-MM-DD (inclusive). Must be given together with --start-date.",
     )
     parser.add_argument(
-        "--agent-id", type=int, default=config.AGENT_ID,
-        help="[eod mode] Agent ID to report on (defaults to config.AGENT_ID).",
+        "--agent-id", type=int, default=None,
+        help="[eod mode] Agent ID to report on. Required when --mode eod.",
     )
 
     # --- Mode 2 (priority-list) args ---
@@ -170,7 +170,7 @@ def run_priority_list(as_of_date=None, input_path=None):
 
     # All valid records for CSV output
     all_records = categories["valid"].sort_values("days_remaining").reset_index(drop=True)
-    all_records["ref_id"] = "test-ref-id"
+    all_records["ref_id"] = config.CUSTOMER_LIST_REF_ID
 
     if not all_records.empty:
         # 6a. Write Priority List CSV.
@@ -208,11 +208,17 @@ if __name__ == "__main__":
 
         try:
             run_priority_list(as_of_date=as_of, input_path=args.input)
-        except (MissingInputFileError, MissingHeaderError) as e:
+        except (MissingInputFileError, MissingHeaderError, UnparsableFilenameDateError) as e:
             print(e)
             sys.exit(1)
 
     else:  # args.mode == "eod"
+        try:
+            agent_id = validators.require_agent_id(args.agent_id)
+        except validators.MissingAgentIdError as e:
+            print(e)
+            sys.exit(1)
+
         try:
             parsed_start, parsed_end = validators.parse_date_range(args.start_date, args.end_date)
         except validators.InvalidDateRangeError as e:
@@ -220,7 +226,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         try:
-            run_eod(agent_id=args.agent_id, start_date=parsed_start, end_date=parsed_end)
+            run_eod(agent_id=agent_id, start_date=parsed_start, end_date=parsed_end)
         except MissingInputFileError as e:
             print(e)
             sys.exit(1)

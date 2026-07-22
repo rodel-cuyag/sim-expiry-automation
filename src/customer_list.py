@@ -14,11 +14,14 @@ import pandas as pd
 
 
 def compute_days_remaining(exp_date, as_of_date):
-    """Whole days from as_of_date to exp_date. Negative if already expired."""
+    """
+    Days remaining counting as_of_date itself as day 1 (e.g. today Jul 22,
+    exp_date Jul 24 -> 3). Zero or negative once exp_date is in the past.
+    """
     if pd.isna(exp_date):
         return None
     exp = exp_date.date() if hasattr(exp_date, "date") else exp_date
-    return (exp - as_of_date).days
+    return (exp - as_of_date).days + 1
 
 
 # ── Validation helpers ─────────────────────────────────────────────
@@ -26,8 +29,8 @@ def compute_days_remaining(exp_date, as_of_date):
 
 def validate_phone_format(raw_value):
     """
-    Validate phone number format. Only +63/63 format accepted.
-    Must be exactly 12 digits after stripping all non-digit characters.
+    Validate phone number format. Accepts +63/63 (12 digits), 09 (11 digits),
+    and 9 (10 digits) formats, after stripping all non-digit characters.
 
     Returns (is_valid, reason, phone_9x, last_4).
     """
@@ -36,14 +39,22 @@ def validate_phone_format(raw_value):
 
     digits = re.sub(r"\D", "", str(raw_value))
 
-    if not digits.startswith("63") or len(digits) < 2:
-        return False, "Invalid PH code (must start with +63 or 63)", None, None
+    if digits.startswith("63"):
+        if len(digits) != 12:
+            return False, "Invalid PH number length / Invalid last 4 digits", None, None
+        phone_9x = digits[2:]
+    elif digits.startswith("09"):
+        if len(digits) != 11:
+            return False, "Invalid PH number length / Invalid last 4 digits", None, None
+        phone_9x = digits[1:]
+    elif digits.startswith("9"):
+        if len(digits) != 10:
+            return False, "Invalid PH number length / Invalid last 4 digits", None, None
+        phone_9x = digits
+    else:
+        return False, "Invalid PH code (must start with +63, 63, 09, or 9)", None, None
 
-    if len(digits) != 12:
-        return False, "Invalid PH number length / Invalid last 4 digits", None, None
-
-    phone_9x = digits[2:]
-    last_4 = digits[-4:]
+    last_4 = phone_9x[-4:]
     return True, None, phone_9x, last_4
 
 
@@ -77,9 +88,9 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
       3. Duplicate check (global, always runs)
 
     Returns a dict with three DataFrames:
-        valid     — passes all checks, days_remaining >= 0
+        valid     — passes all checks, days_remaining > 0
         invalid   — failed at least one check (+ ``reason`` column)
-        expired   — passes checks, days_remaining < 0
+        expired   — passes checks, days_remaining <= 0
     """
     df = raw_df.copy()
 
@@ -90,6 +101,7 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
         exp_raw = row.get("exp_date")
 
         reasons = []
+        phone_display = str(phone_raw).strip() if not pd.isna(phone_raw) else ""
 
         # Phone chain (stops on first failure)
         phone_ok, phone_reason, phone_9x, last_4 = validate_phone_format(phone_raw)
@@ -104,7 +116,6 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
         if not date_ok:
             reasons.append(date_reason)
 
-        phone_display = str(phone_raw).strip() if not pd.isna(phone_raw) else ""
         processed.append({
             "phone_raw": phone_display,
             "normalized_phone": normalized_phone,
@@ -149,7 +160,7 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
                 "exp_date": p["parsed_date"],
                 "days_remaining": p["days_remaining"],
             }
-            if p["days_remaining"] < 0:
+            if p["days_remaining"] <= 0:
                 expired_list.append(out_row)
             else:
                 valid_list.append(out_row)

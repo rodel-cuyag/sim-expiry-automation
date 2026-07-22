@@ -55,13 +55,15 @@ Generates one of two reports:
    - `data/eod/kpi_results.csv` (needs `voiceConversationId`, `voiceAgentId`, `outputJson`)
    - `data/eod/twilio_webhook_events.csv` (needs `conversation_id`, `event`)
 
-   **Priority List mode** (one CSV or Excel file in `data/customer_list/`,
-   needs `customer_phone` and `exp_date` columns):
-   - `data/customer_list/sim_expiry_customer_list.xlsx`
+   **Priority List mode** (one file in `data/customer_list/`):
+   - CSV or Excel, needs `customer_phone` and `exp_date` columns:
+     `data/customer_list/sim_expiry_customer_list.xlsx`
+   - or a `.txt` phone list with the expiry date in the filename (see
+     Mode 2 below): `data/customer_list/customer_list_expiring_july24.txt`
 
 8. **Run it**
 ```bash
-   python main.py                                                       # EOD mode (default), most recent date, config AGENT_ID
+   python main.py --mode eod --agent-id 1060                             # EOD mode, most recent date
    python main.py --mode priority-list                                   # Priority List mode, as-of today (PHT)
    python main.py --mode priority-list --as-of-date 2026-07-10           # Priority List, specific date
    python main.py --mode priority-list --input path/to/other.xlsx        # Priority List, override input file
@@ -97,7 +99,7 @@ safer long-term maintenance — worth it even for a small script like this.
 ```
 sim_expiry_automation/
 ├── data/
-│   ├── customer_list/         → input: any CSV/Excel with customer_phone + exp_date columns (Priority List mode)
+│   ├── customer_list/         → input: any CSV/Excel with customer_phone + exp_date columns, or a .txt phone list with the expiry date in the filename (Priority List mode)
 │   └── eod/                   → input: 3 CSVs, auto-matched by column headers (EOD mode)
 ├── output/
 │   ├── customer_list/
@@ -109,6 +111,7 @@ sim_expiry_automation/
 ├── src/
 │   ├── config.py              → all settings in one place (paths, AGENT_ID, timezone, filename templates, required headers)
 │   ├── validators.py          → validates date CLI args (--start-date/--end-date, --as-of-date)
+│   ├── filename_dates.py      → parses exp_date out of a .txt customer-list filename (Priority List mode)
 │   ├── data_loader.py         → auto-discovers input files by column headers; validates required headers are present
 │   ├── progress.py            → spinning "loading..." animation in the terminal
 │   ├── preprocessing.py       → cleans data, parses JSON, filters to one agent, joins 3 sources (EOD mode)
@@ -130,21 +133,21 @@ others.
 
 ## 4. Usage
 
-Choose a mode with `--mode` (`eod` is the default):
+Choose a mode with `--mode` (required — either `eod` or `priority-list`):
 
 ### Mode 1: EOD Report (`--mode eod`)
 
 ```bash
-python main.py                                                   # most recent date, agent from config.py
-python main.py --start-date 2026-06-25 --end-date 2026-06-29     # a date range
-python main.py --start-date 2026-06-29 --end-date 2026-06-29     # a single day (range of 1)
-python main.py --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29
+python main.py --mode eod --agent-id 1060                                             # most recent date
+python main.py --mode eod --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29     # a date range
+python main.py --mode eod --agent-id 1060 --start-date 2026-06-29 --end-date 2026-06-29     # a single day (range of 1)
 ```
 
 - `--start-date` / `--end-date`: inclusive range in `YYYY-MM-DD`. Must be
   given together (or both omitted — defaults to the most recent single day
   in the data). Start cannot be after end.
-- `--agent-id`: override `config.AGENT_ID` (defaults to `1060`).
+- `--agent-id`: required for `--mode eod`. No default — the run fails with
+  an error if omitted.
 
 **Output naming:** single-day → `SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx`;
 multi-day → `SIM_Expiry_EOD_Report_{agent_id}_{start}_to_{end}.xlsx`.
@@ -172,22 +175,47 @@ python main.py --mode priority-list --input path/to/other.csv     # override inp
 - `--as-of-date`: reference date in `YYYY-MM-DD` used to compute
   `days_remaining`. Defaults to today in PHT.
 - `--input`: override the customer list file path. If omitted, the file is
-  auto-discovered in `data/customer_list/` by matching column headers
-  (`customer_phone` + `exp_date`) — supports both `.xlsx` and `.csv`.
+  auto-discovered in `data/customer_list/` — supports `.csv`, `.xlsx`/`.xls`,
+  and `.txt`:
+  - `.csv`/`.xlsx`/`.xls`: discovered by matching column headers
+    (`customer_phone` + `exp_date`).
+  - `.txt`: a plain phone-number list — one phone number per line, no
+    header row, no `exp_date` column. Discovered instead by checking that
+    the **filename** encodes a parseable expiry date, which is applied to
+    every row in the file. Supported filename conventions:
+    1. Month name + day, year optional (defaults to current year):
+       e.g. `customer_list_expiring_july24.txt`, `..._jul_24.txt`
+    2. Explicit numeric date (`YYYY-MM-DD` / `YYYY_MM_DD` / `YYYYMMDD`):
+       e.g. `customer_list_2026-07-24.txt`
+
+    If neither pattern is found in the filename, the run stops with a
+    clear error explaining the two conventions above. Since `.txt` lists
+    have no per-row date, every row in one file shares that single
+    filename-derived expiry date — if a list needs mixed expiry dates,
+    use `.csv`/`.xlsx` instead. Also note: when the filename omits a year,
+    it defaults to the current calendar year, which can be wrong for a
+    file processed near a year boundary (e.g. a `dec24` file run the
+    following January) — a known limitation, not currently guarded against.
 
 **Header validation:** before any processing, the script checks that the input
 file contains the required columns `customer_phone` and `exp_date`. If either is
 missing, processing stops immediately with a clear error message.
 
 **Phone normalization:** valid phone numbers in all outputs are formatted as
-`+63XXXXXXXXXX` (no spaces, consistent prefix) regardless of the input format
-(e.g. `+63 998 766 5432` → `+639987665432`, `639212223242` → `+639212223242`).
+`+63XXXXXXXXXX` (no spaces, consistent prefix) regardless of the input format.
+Three input formats are accepted, all normalizing to the same `+63XXXXXXXXXX`:
+- `+63`/`63` + 10 digits (12 digits total), e.g. `+63 998 766 5432` → `+639987665432`
+- `09` + 9 digits (11 digits total), e.g. `09987665432` → `+639987665432`
+- `9` + 9 digits (10 digits total), e.g. `9987665432` → `+639987665432`
 
 **Output:** two files in `output/customer_list/{date}/` (date-stamped subfolder):
 
 - `SIM_Expiry_Priority_List_{date}.csv` — every record with
-  `days_remaining >= 0` (no upper cutoff), with `customer_phone` normalized
-  to `+63XXXXXXXXXX`, sorted by `days_remaining` ascending (most urgent first)
+  `days_remaining > 0` (no upper cutoff), with `customer_phone` normalized
+  to `+63XXXXXXXXXX`, sorted by `days_remaining` ascending (most urgent first);
+  includes a `ref_id` column (constant value from `config.CUSTOMER_LIST_REF_ID`, currently `GOCUC10`).
+  `days_remaining` counts the as-of date itself as day 1 (e.g. as-of date
+  Jul 22, `exp_date` Jul 24 → `3`)
 - `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
   (3 sheets: Summary, Invalid Data, Expired Numbers)
 
@@ -196,8 +224,8 @@ missing, processing stops immediately with a clear error message.
 | # | Check | Fails when... |
 |---|---|---|
 | 1 | Missing phone | `customer_phone` is blank |
-| 2 | Invalid PH code | Number doesn't start with `+63` or `63` |
-| 3 | Invalid length | Not exactly 12 digits after stripping non-digits |
+| 2 | Invalid PH code | Number doesn't start with `+63`, `63`, `09`, or `9` |
+| 3 | Invalid length | Wrong digit count for the matched prefix (12 for `+63`/`63`, 11 for `09`, 10 for `9`), after stripping non-digits |
 | 4 | Missing date | `exp_date` is blank |
 | 5 | Invalid date | `exp_date` cannot be parsed |
 | 6 | Duplicate phone | Same `customer_phone` appears more than once |
@@ -214,7 +242,7 @@ reasons on the same row are joined with `"; "`.
 |---|---|
 | Summary | Record counts per category with percentages |
 | Invalid Data | Rows that failed validation with concatenated `reason` column |
-| Expired Numbers | Already-expired records (`days_remaining < 0`) |
+| Expired Numbers | Already-expired records (`days_remaining <= 0`) |
 
 ---
 
@@ -257,7 +285,7 @@ reasons on the same row are joined with `"; "`.
   phone format, unparseable date, duplicates) are written to the
   **Invalid Data** sheet of the Validation Report with a specific reason.
   The Priority List CSV itself contains only validated records with
-  `days_remaining >= 0`; already-expired records are captured separately
+  `days_remaining > 0`; already-expired records are captured separately
   in the Validation Report's **Expired Numbers** sheet.
 - **`call_logs` schema varies by agent.** Agent 1060 stores it as
   `{"metrics": {"total_duration_ms": ...}}`. Other agents store it as a

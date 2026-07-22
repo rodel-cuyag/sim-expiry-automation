@@ -258,14 +258,12 @@ def extract_twilio_details(twilio_events: pd.DataFrame) -> pd.DataFrame:
     return result.drop_duplicates(subset="conversation_id")
 
 
-def build_working_table(agent_id: int = None) -> pd.DataFrame:
+def build_working_table(agent_id: int) -> pd.DataFrame:
     """
     Main entry point: loads all 3 CSVs, filters to agent_id, and merges
     them into one row-per-conversation DataFrame ready for reporting.
     """
     from src import data_loader  # local import avoids circular import
-
-    agent_id = agent_id or config.AGENT_ID
 
     raw = data_loader.load_all()
 
