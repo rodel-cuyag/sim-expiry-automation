@@ -22,6 +22,7 @@ import pandas as pd
 
 from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report
 from src.data_loader import MissingInputFileError, MissingHeaderError
+from src.filename_dates import UnparsableFilenameDateError
 
 
 def parse_args():
@@ -207,7 +208,7 @@ if __name__ == "__main__":
 
         try:
             run_priority_list(as_of_date=as_of, input_path=args.input)
-        except (MissingInputFileError, MissingHeaderError) as e:
+        except (MissingInputFileError, MissingHeaderError, UnparsableFilenameDateError) as e:
             print(e)
             sys.exit(1)
 

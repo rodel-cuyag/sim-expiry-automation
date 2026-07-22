@@ -55,9 +55,11 @@ Generates one of two reports:
    - `data/eod/kpi_results.csv` (needs `voiceConversationId`, `voiceAgentId`, `outputJson`)
    - `data/eod/twilio_webhook_events.csv` (needs `conversation_id`, `event`)
 
-   **Priority List mode** (one CSV or Excel file in `data/customer_list/`,
-   needs `customer_phone` and `exp_date` columns):
-   - `data/customer_list/sim_expiry_customer_list.xlsx`
+   **Priority List mode** (one file in `data/customer_list/`):
+   - CSV or Excel, needs `customer_phone` and `exp_date` columns:
+     `data/customer_list/sim_expiry_customer_list.xlsx`
+   - or a `.txt` phone list with the expiry date in the filename (see
+     Mode 2 below): `data/customer_list/customer_list_expiring_july24.txt`
 
 8. **Run it**
 ```bash
@@ -97,7 +99,7 @@ safer long-term maintenance — worth it even for a small script like this.
 ```
 sim_expiry_automation/
 ├── data/
-│   ├── customer_list/         → input: any CSV/Excel with customer_phone + exp_date columns (Priority List mode)
+│   ├── customer_list/         → input: any CSV/Excel with customer_phone + exp_date columns, or a .txt phone list with the expiry date in the filename (Priority List mode)
 │   └── eod/                   → input: 3 CSVs, auto-matched by column headers (EOD mode)
 ├── output/
 │   ├── customer_list/
@@ -109,6 +111,7 @@ sim_expiry_automation/
 ├── src/
 │   ├── config.py              → all settings in one place (paths, AGENT_ID, timezone, filename templates, required headers)
 │   ├── validators.py          → validates date CLI args (--start-date/--end-date, --as-of-date)
+│   ├── filename_dates.py      → parses exp_date out of a .txt customer-list filename (Priority List mode)
 │   ├── data_loader.py         → auto-discovers input files by column headers; validates required headers are present
 │   ├── progress.py            → spinning "loading..." animation in the terminal
 │   ├── preprocessing.py       → cleans data, parses JSON, filters to one agent, joins 3 sources (EOD mode)
@@ -172,8 +175,27 @@ python main.py --mode priority-list --input path/to/other.csv     # override inp
 - `--as-of-date`: reference date in `YYYY-MM-DD` used to compute
   `days_remaining`. Defaults to today in PHT.
 - `--input`: override the customer list file path. If omitted, the file is
-  auto-discovered in `data/customer_list/` by matching column headers
-  (`customer_phone` + `exp_date`) — supports both `.xlsx` and `.csv`.
+  auto-discovered in `data/customer_list/` — supports `.csv`, `.xlsx`/`.xls`,
+  and `.txt`:
+  - `.csv`/`.xlsx`/`.xls`: discovered by matching column headers
+    (`customer_phone` + `exp_date`).
+  - `.txt`: a plain phone-number list — one phone number per line, no
+    header row, no `exp_date` column. Discovered instead by checking that
+    the **filename** encodes a parseable expiry date, which is applied to
+    every row in the file. Supported filename conventions:
+    1. Month name + day, year optional (defaults to current year):
+       e.g. `customer_list_expiring_july24.txt`, `..._jul_24.txt`
+    2. Explicit numeric date (`YYYY-MM-DD` / `YYYY_MM_DD` / `YYYYMMDD`):
+       e.g. `customer_list_2026-07-24.txt`
+
+    If neither pattern is found in the filename, the run stops with a
+    clear error explaining the two conventions above. Since `.txt` lists
+    have no per-row date, every row in one file shares that single
+    filename-derived expiry date — if a list needs mixed expiry dates,
+    use `.csv`/`.xlsx` instead. Also note: when the filename omits a year,
+    it defaults to the current calendar year, which can be wrong for a
+    file processed near a year boundary (e.g. a `dec24` file run the
+    following January) — a known limitation, not currently guarded against.
 
 **Header validation:** before any processing, the script checks that the input
 file contains the required columns `customer_phone` and `exp_date`. If either is

@@ -101,6 +101,7 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
         exp_raw = row.get("exp_date")
 
         reasons = []
+        phone_display = str(phone_raw).strip() if not pd.isna(phone_raw) else ""
 
         # Phone chain (stops on first failure)
         phone_ok, phone_reason, phone_9x, last_4 = validate_phone_format(phone_raw)
@@ -115,7 +116,6 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
         if not date_ok:
             reasons.append(date_reason)
 
-        phone_display = str(phone_raw).strip() if not pd.isna(phone_raw) else ""
         processed.append({
             "phone_raw": phone_display,
             "normalized_phone": normalized_phone,
