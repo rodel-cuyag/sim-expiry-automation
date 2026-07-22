@@ -2,8 +2,6 @@
 config.py
 ---------
 Single source of truth for file paths and settings.
-Change AGENT_ID here (or via --agent-id CLI flag) to point the whole
-EOD pipeline at a different agent without touching any other file.
 """
 
 from pathlib import Path
@@ -49,11 +47,6 @@ EOD_REQUIRED_COLUMNS = {
 # data_loader auto-discovers the file in data/customer_list/ by scanning
 # for CSV/Excel files that have customer_phone and exp_date columns.
 # Use --input on the CLI to override with an explicit path.
-
-# ── Dynamic agent filter (EOD mode only) ─────────────────────────
-# This is the ONLY line you need to change to run the EOD report for a
-# different agent. It can also be overridden with --agent-id on the CLI.
-AGENT_ID = 1060
 
 # ── Output file naming ────────────────────────────────────────────
 # Filled in with the report date(s) at runtime (see main.py).
