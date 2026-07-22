@@ -170,6 +170,7 @@ def run_priority_list(as_of_date=None, input_path=None):
 
     # All valid records for CSV output
     all_records = categories["valid"].sort_values("days_remaining").reset_index(drop=True)
+    all_records["ref_id"] = "test-ref-id"
 
     if not all_records.empty:
         # 6a. Write Priority List CSV.
