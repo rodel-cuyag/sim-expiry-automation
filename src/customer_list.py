@@ -26,8 +26,8 @@ def compute_days_remaining(exp_date, as_of_date):
 
 def validate_phone_format(raw_value):
     """
-    Validate phone number format. Only +63/63 format accepted.
-    Must be exactly 12 digits after stripping all non-digit characters.
+    Validate phone number format. Accepts +63/63 (12 digits), 09 (11 digits),
+    and 9 (10 digits) formats, after stripping all non-digit characters.
 
     Returns (is_valid, reason, phone_9x, last_4).
     """
@@ -36,14 +36,22 @@ def validate_phone_format(raw_value):
 
     digits = re.sub(r"\D", "", str(raw_value))
 
-    if not digits.startswith("63") or len(digits) < 2:
-        return False, "Invalid PH code (must start with +63 or 63)", None, None
+    if digits.startswith("63"):
+        if len(digits) != 12:
+            return False, "Invalid PH number length / Invalid last 4 digits", None, None
+        phone_9x = digits[2:]
+    elif digits.startswith("09"):
+        if len(digits) != 11:
+            return False, "Invalid PH number length / Invalid last 4 digits", None, None
+        phone_9x = digits[1:]
+    elif digits.startswith("9"):
+        if len(digits) != 10:
+            return False, "Invalid PH number length / Invalid last 4 digits", None, None
+        phone_9x = digits
+    else:
+        return False, "Invalid PH code (must start with +63, 63, 09, or 9)", None, None
 
-    if len(digits) != 12:
-        return False, "Invalid PH number length / Invalid last 4 digits", None, None
-
-    phone_9x = digits[2:]
-    last_4 = digits[-4:]
+    last_4 = phone_9x[-4:]
     return True, None, phone_9x, last_4
 
 

@@ -180,14 +180,18 @@ file contains the required columns `customer_phone` and `exp_date`. If either is
 missing, processing stops immediately with a clear error message.
 
 **Phone normalization:** valid phone numbers in all outputs are formatted as
-`+63XXXXXXXXXX` (no spaces, consistent prefix) regardless of the input format
-(e.g. `+63 998 766 5432` → `+639987665432`, `639212223242` → `+639212223242`).
+`+63XXXXXXXXXX` (no spaces, consistent prefix) regardless of the input format.
+Three input formats are accepted, all normalizing to the same `+63XXXXXXXXXX`:
+- `+63`/`63` + 10 digits (12 digits total), e.g. `+63 998 766 5432` → `+639987665432`
+- `09` + 9 digits (11 digits total), e.g. `09987665432` → `+639987665432`
+- `9` + 9 digits (10 digits total), e.g. `9987665432` → `+639987665432`
 
 **Output:** two files in `output/customer_list/{date}/` (date-stamped subfolder):
 
 - `SIM_Expiry_Priority_List_{date}.csv` — every record with
   `days_remaining >= 0` (no upper cutoff), with `customer_phone` normalized
-  to `+63XXXXXXXXXX`, sorted by `days_remaining` ascending (most urgent first)
+  to `+63XXXXXXXXXX`, sorted by `days_remaining` ascending (most urgent first);
+  includes a `ref_id` column (constant value from `config.CUSTOMER_LIST_REF_ID`, currently `GOCUC10`)
 - `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
   (3 sheets: Summary, Invalid Data, Expired Numbers)
 
@@ -196,8 +200,8 @@ missing, processing stops immediately with a clear error message.
 | # | Check | Fails when... |
 |---|---|---|
 | 1 | Missing phone | `customer_phone` is blank |
-| 2 | Invalid PH code | Number doesn't start with `+63` or `63` |
-| 3 | Invalid length | Not exactly 12 digits after stripping non-digits |
+| 2 | Invalid PH code | Number doesn't start with `+63`, `63`, `09`, or `9` |
+| 3 | Invalid length | Wrong digit count for the matched prefix (12 for `+63`/`63`, 11 for `09`, 10 for `9`), after stripping non-digits |
 | 4 | Missing date | `exp_date` is blank |
 | 5 | Invalid date | `exp_date` cannot be parsed |
 | 6 | Duplicate phone | Same `customer_phone` appears more than once |

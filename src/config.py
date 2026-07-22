@@ -70,6 +70,9 @@ VALIDATION_OUTPUT_FILENAME_TEMPLATE = "SIM_Expiry_Validation_Report_{date}.xlsx"
 
 REQUIRED_CUSTOMER_LIST_HEADERS = ["customer_phone", "exp_date"]
 
+# Constant ref_id value stamped on every row of the Priority List CSV output.
+CUSTOMER_LIST_REF_ID = "GOCUC10"
+
 # ── EOD output folderization ──────────────────────────────────────
 # Each date range gets its own subfolder under output/eod/ to keep
 # reports organised as they accumulate.
