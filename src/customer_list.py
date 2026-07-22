@@ -14,11 +14,14 @@ import pandas as pd
 
 
 def compute_days_remaining(exp_date, as_of_date):
-    """Whole days from as_of_date to exp_date. Negative if already expired."""
+    """
+    Days remaining counting as_of_date itself as day 1 (e.g. today Jul 22,
+    exp_date Jul 24 -> 3). Zero or negative once exp_date is in the past.
+    """
     if pd.isna(exp_date):
         return None
     exp = exp_date.date() if hasattr(exp_date, "date") else exp_date
-    return (exp - as_of_date).days
+    return (exp - as_of_date).days + 1
 
 
 # ── Validation helpers ─────────────────────────────────────────────
@@ -85,9 +88,9 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
       3. Duplicate check (global, always runs)
 
     Returns a dict with three DataFrames:
-        valid     — passes all checks, days_remaining >= 0
+        valid     — passes all checks, days_remaining > 0
         invalid   — failed at least one check (+ ``reason`` column)
-        expired   — passes checks, days_remaining < 0
+        expired   — passes checks, days_remaining <= 0
     """
     df = raw_df.copy()
 
@@ -157,7 +160,7 @@ def categorize_records(raw_df: pd.DataFrame, as_of_date) -> dict:
                 "exp_date": p["parsed_date"],
                 "days_remaining": p["days_remaining"],
             }
-            if p["days_remaining"] < 0:
+            if p["days_remaining"] <= 0:
                 expired_list.append(out_row)
             else:
                 valid_list.append(out_row)

@@ -189,9 +189,11 @@ Three input formats are accepted, all normalizing to the same `+63XXXXXXXXXX`:
 **Output:** two files in `output/customer_list/{date}/` (date-stamped subfolder):
 
 - `SIM_Expiry_Priority_List_{date}.csv` — every record with
-  `days_remaining >= 0` (no upper cutoff), with `customer_phone` normalized
+  `days_remaining > 0` (no upper cutoff), with `customer_phone` normalized
   to `+63XXXXXXXXXX`, sorted by `days_remaining` ascending (most urgent first);
-  includes a `ref_id` column (constant value from `config.CUSTOMER_LIST_REF_ID`, currently `GOCUC10`)
+  includes a `ref_id` column (constant value from `config.CUSTOMER_LIST_REF_ID`, currently `GOCUC10`).
+  `days_remaining` counts the as-of date itself as day 1 (e.g. as-of date
+  Jul 22, `exp_date` Jul 24 → `3`)
 - `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
   (3 sheets: Summary, Invalid Data, Expired Numbers)
 
@@ -218,7 +220,7 @@ reasons on the same row are joined with `"; "`.
 |---|---|
 | Summary | Record counts per category with percentages |
 | Invalid Data | Rows that failed validation with concatenated `reason` column |
-| Expired Numbers | Already-expired records (`days_remaining < 0`) |
+| Expired Numbers | Already-expired records (`days_remaining <= 0`) |
 
 ---
 
@@ -261,7 +263,7 @@ reasons on the same row are joined with `"; "`.
   phone format, unparseable date, duplicates) are written to the
   **Invalid Data** sheet of the Validation Report with a specific reason.
   The Priority List CSV itself contains only validated records with
-  `days_remaining >= 0`; already-expired records are captured separately
+  `days_remaining > 0`; already-expired records are captured separately
   in the Validation Report's **Expired Numbers** sheet.
 - **`call_logs` schema varies by agent.** Agent 1060 stores it as
   `{"metrics": {"total_duration_ms": ...}}`. Other agents store it as a
