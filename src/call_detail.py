@@ -22,6 +22,14 @@ def _agreed_to_keep_sim(row):
     return "Yes" if bool(value) else "No"
 
 
+def _format_question_topics(value):
+    """Joins a list of topic strings into a comma-separated display string.
+    Empty lists and missing values both render as a blank cell."""
+    if not isinstance(value, list) or not value:
+        return None
+    return ", ".join(value)
+
+
 def _map_status(twilio_status):
     """
     Maps Twilio call stages to display-friendly status labels.
@@ -72,6 +80,7 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Agreed to Keep SIM Active": df.apply(_agreed_to_keep_sim, axis=1),
         "Customer Disposition": df.get("customer_disposition", pd.Series(dtype=object)),
         "Non-Retention Reason": df.get("non_retention_reason", pd.Series(dtype=object)),
+        "Question Topics": df.get("question_topics", pd.Series(dtype=object)).apply(_format_question_topics),
         "Call Date (PHT)": df["start_dt_pht"].dt.date,
         "Call Time (PHT)": df["start_dt_pht"].dt.strftime("%H:%M:%S"),
     })

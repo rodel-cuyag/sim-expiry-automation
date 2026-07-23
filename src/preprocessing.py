@@ -177,6 +177,7 @@ def extract_kpi_fields(kpi_results: pd.DataFrame, agent_id: int) -> pd.DataFrame
         "sim_retention_success",
         "non_retention_reason",
         "user_sentiment",
+        "question_topics",
     ]
     existing_cols = [c for c in keep_cols if c in flat.columns]
     return flat[existing_cols]
