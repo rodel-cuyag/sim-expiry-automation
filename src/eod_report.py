@@ -62,12 +62,11 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
         ("", ""),  # Blank row for readability
 
         # Call Volume Metrics
-        ("Calls Dialed - Target", "[PLACEHOLDER - Set by team]"),
+        ("Calls Dialed - Target", ""),
         ("Calls Dialed - Actual", dialed),
         ("Calls Connected", connected),
-        ("No Answer (all retries exhausted)", no_answer),
+        ("No Answer", no_answer),
         ("Busy", busy),
-        ("System Errors", "[PLACEHOLDER - Consult team]"),
         ("", ""),  # Blank row
 
         # Duration Metrics
@@ -84,24 +83,24 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
 
         # FINOPS Section
         ("FINOPS", ""),
-        ("LLM Inference Cost (USD)", "[PLACEHOLDER - Consult team]"),
-        ("Total Daily Spend (USD)", "[PLACEHOLDER - Consult team]"),
+        ("LLM Inference Cost (USD)", ""),
+        ("Total Daily Spend (USD)", ""),
         ("", ""),  # Blank row
 
         # ISSUES & CHANGES Section
         ("ISSUES & CHANGES", ""),
-        ("Open P0 Issues", "[PLACEHOLDER - Consult team]"),
-        ("Open P1 Issues", "[PLACEHOLDER - Consult team]"),
-        ("Changes Deployed Today", "[PLACEHOLDER - Manual entry]"),
-        ("Changes Pending Approval for Tomorrow", "[PLACEHOLDER - Manual entry]"),
+        ("Open P0 Issues", ""),
+        ("Open P1 Issues", ""),
+        ("Changes Deployed Today", ""),
+        ("Changes Pending Approval for Tomorrow", ""),
         ("", ""),  # Blank row
 
         # TOMORROW'S PLAN Section
         ("TOMORROW'S PLAN", ""),
-        ("Target Call Volume", "[PLACEHOLDER - Manual entry]"),
-        ("Expected List from Globe (ETA)", "[PLACEHOLDER - Manual entry]"),
+        ("Target Call Volume", ""),
+        ("Expected List from Globe (ETA)", ""),
         ("Calling Window", "9:00 AM - 7:00 PM PHT"),
-        ("Phase Gate Status", "[PLACEHOLDER - Manual entry]"),
+        ("Phase Gate Status", ""),
     ]
 
     return pd.DataFrame(metrics, columns=["Metric", "Value"])

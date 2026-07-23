@@ -295,8 +295,7 @@ reasons on the same row are joined with `"; "`.
   for duration; that's a known gap if/when this pipeline is pointed at
   those agents.
 - **LLM Inference Cost, P0/P1 issue counts, and several other EOD Report
-  fields** show a literal `[PLACEHOLDER - ...]` string (e.g.
-  `[PLACEHOLDER - Consult team]`) — no source data currently supports
-  them. This is separate from `N/A`, which only appears in the Call
+  fields** are left blank — no source data currently supports them.
+  This is separate from `N/A`, which only appears in the Call
   Detail Log's "Agreed to Keep SIM Active" column when KPI data is
   missing for that call.
