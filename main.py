@@ -16,7 +16,6 @@ Usage:
 
 import argparse
 import sys
-from datetime import datetime
 
 import pandas as pd
 
@@ -162,8 +161,7 @@ def run_priority_list(as_of_date=None, input_path=None):
     })
 
     # 6. Write outputs inside a date-stamped subfolder.
-    now_date = datetime.now().date()
-    output_dir = config.CUSTOMER_LIST_OUTPUT_DIR / str(now_date)
+    output_dir = config.CUSTOMER_LIST_OUTPUT_DIR / str(as_of_date)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     priority_path = None
@@ -174,7 +172,7 @@ def run_priority_list(as_of_date=None, input_path=None):
 
     if not all_records.empty:
         # 6a. Write Priority List CSV.
-        filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
+        filename = config.CUSTOMER_LIST_OUTPUT_FILENAME_TEMPLATE.format(date=as_of_date)
         priority_path = excel_writer.resolve_output_path(output_dir / filename)
         excel_writer.write_priority_list_csv(all_records, priority_path)
         print(f"Priority list generated: {priority_path}")
@@ -182,7 +180,7 @@ def run_priority_list(as_of_date=None, input_path=None):
         print("No valid records found. Priority list not generated.")
 
     # 6b. Write Validation Report (3‑sheet workbook).
-    validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=now_date)
+    validation_filename = config.VALIDATION_OUTPUT_FILENAME_TEMPLATE.format(date=as_of_date)
     validation_path = excel_writer.resolve_output_path(output_dir / validation_filename)
 
     sheets = {
