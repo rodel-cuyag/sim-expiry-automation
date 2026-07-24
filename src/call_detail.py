@@ -14,6 +14,13 @@ def _blank_if_missing(value):
     return None if pd.isna(value) else value
 
 
+def _call_completed_display(value):
+    """Yes/No based on the KPI-derived call_completed flag; blank if missing."""
+    if pd.isna(value):
+        return None
+    return "Yes" if bool(value) else "No"
+
+
 def _agreed_to_keep_sim(row):
     """Yes/No/N/A based on the KPI-derived sim_retention_success flag."""
     value = row.get("sim_retention_success")
@@ -76,6 +83,7 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Conversation ID": df["conversation_id"],
         "Contact Number": df["contact_number_clean"],
         "Status": df["twilio_final_status"].apply(_map_status).apply(_blank_if_missing),
+        "Call Completed": df.get("call_completed", pd.Series(dtype=object)).apply(_call_completed_display),
         "Call Duration (sec)": df["call_duration_sec"],
         "Agreed to Keep SIM Active": df.apply(_agreed_to_keep_sim, axis=1),
         "Customer Disposition": df.get("customer_disposition", pd.Series(dtype=object)),

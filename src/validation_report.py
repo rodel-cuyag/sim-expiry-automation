@@ -55,7 +55,7 @@ def _build_join_summary(working_table, agent_id, start_date, end_date):
             "Conversation ID": cid,
             "In Conversations": "Yes" if in_conv else "No",
             "In KPI Results": "Yes" if in_kpi else "No",
-            "In Twilio Events": "Yes" if in_tw else "No",
+            "In Webhook Events": "Yes" if in_tw else "No",
             "Join Status": status,
             "Agent ID": agent_id,
             "Call Date (PHT)": call_date,

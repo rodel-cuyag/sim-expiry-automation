@@ -38,6 +38,11 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
     busy = (range_log["Status"] == "Busy").sum()
     unmatched = range_log["Status"].isna().sum()
 
+    # Completed comes from the KPI-derived call_completed flag (see
+    # call_detail.py's "Call Completed" column) — distinct from "Connected",
+    # which is the Twilio call-progress outcome.
+    completed = (range_log["Call Completed"] == "Yes").sum()
+
     # Count agreements ONLY from connected calls for accurate conversion rate
     connected_calls = range_log[range_log["Status"] == "Connected"]
     agreed = (connected_calls["Agreed to Keep SIM Active"] == "Yes").sum()
@@ -67,6 +72,8 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
         ("Calls Connected", connected),
         ("No Answer", no_answer),
         ("Busy", busy),
+        ("Failed", failed),
+        ("Total Completed Calls", completed),
         ("", ""),  # Blank row
 
         # Duration Metrics
