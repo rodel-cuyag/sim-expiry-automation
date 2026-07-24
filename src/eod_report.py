@@ -73,6 +73,9 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
         ("No Answer", no_answer),
         ("Busy", busy),
         ("Failed", failed),
+        ("", ""),  # Blank row
+
+        # Total Completed Calls
         ("Total Completed Calls", completed),
         ("", ""),  # Blank row
 
