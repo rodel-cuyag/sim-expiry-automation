@@ -7,6 +7,19 @@ the columns from the Globe SIM Expiry plan's call detail log template.
 
 import pandas as pd
 
+# Priority order for picking the "best" record among same-day duplicate
+# dials to the same number (lower number = higher priority). Anything not
+# in this map (i.e. a blank/unmatched status) is treated as lowest priority.
+_STATUS_PRIORITY = {
+    "Connected": 0,
+    "Busy": 1,
+    "No Answer": 2,
+    "Failed": 3,
+    "Ringing": 4,
+    "Initiated": 5,
+}
+_BLANK_STATUS_PRIORITY = len(_STATUS_PRIORITY)
+
 
 def _blank_if_missing(value):
     """Turns NaN into a real Python None so openpyxl writes a blank cell
@@ -65,6 +78,38 @@ def _map_status(twilio_status):
     return status_map.get(twilio_status, twilio_status)
 
 
+def _dedupe_duplicate_calls(log: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapses repeat same-day dials to the same Contact Number down to one
+    record per (Contact Number, Call Date (PHT)):
+
+      - Same status across duplicates -> keep the latest (by Call Time).
+      - Different statuses -> keep the highest-priority status (see
+        _STATUS_PRIORITY), breaking ties by latest Call Time.
+
+    Rows with a blank Contact Number are never collapsed against each
+    other (no reliable way to confirm they're the same customer).
+    """
+    has_number = log["Contact Number"].notna()
+    dedupable = log[has_number].copy()
+    passthrough = log[~has_number]
+
+    if dedupable.empty:
+        return log
+
+    dedupable["_priority"] = (
+        dedupable["Status"].map(_STATUS_PRIORITY).fillna(_BLANK_STATUS_PRIORITY)
+    )
+    dedupable = dedupable.sort_values(
+        ["Contact Number", "Call Date (PHT)", "_priority", "Call Time (PHT)"],
+        ascending=[True, True, True, False],
+    )
+    deduped = dedupable.drop_duplicates(
+        subset=["Contact Number", "Call Date (PHT)"], keep="first"
+    ).drop(columns="_priority")
+
+    return pd.concat([deduped, passthrough], ignore_index=True)
+
 
 def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
     """
@@ -83,7 +128,6 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Conversation ID": df["conversation_id"],
         "Contact Number": df["contact_number_clean"],
         "Status": df["twilio_final_status"].apply(_map_status).apply(_blank_if_missing),
-        "Call Completed": df.get("call_completed", pd.Series(dtype=object)).apply(_call_completed_display),
         "Call Duration (sec)": df["call_duration_sec"],
         "Agreed to Keep SIM Active": df.apply(_agreed_to_keep_sim, axis=1),
         "Customer Disposition": df.get("customer_disposition", pd.Series(dtype=object)),
@@ -91,6 +135,10 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Question Topics": df.get("question_topics", pd.Series(dtype=object)).apply(_format_question_topics),
         "Call Date (PHT)": df["start_dt_pht"].dt.date,
         "Call Time (PHT)": df["start_dt_pht"].dt.strftime("%H:%M:%S"),
+        # Extra column beyond the reference format's 10 columns — appended
+        # trailing so columns A-J still match the reference exactly.
+        "Call Completed": df.get("call_completed", pd.Series(dtype=object)).apply(_call_completed_display),
     })
 
+    log = _dedupe_duplicate_calls(log)
     return log.sort_values(["Call Date (PHT)", "Call Time (PHT)"]).reset_index(drop=True)

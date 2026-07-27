@@ -74,10 +74,19 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
     # 2. Build the Call Detail Log (all calls, not date-filtered yet).
     detail_log = call_detail.build_call_detail_log(working_table)
 
-    # 3. Default to the most recent single day present, if no range was given.
+    # 3. Default to today (PHT) if no range was given.
     if start_date is None:
-        start_date = end_date = detail_log["Call Date (PHT)"].max()
-        print(f"No --start-date/--end-date given, defaulting to most recent date in data: {start_date}")
+        start_date = end_date = pd.Timestamp.now(tz=config.TIMEZONE).date()
+        print(f"No --start-date/--end-date given, defaulting to today (PHT): {start_date}")
+
+    # 3b. Make sure the resolved period actually has data before reporting on it.
+    has_data_in_range = (
+        (detail_log["Call Date (PHT)"] >= start_date) & (detail_log["Call Date (PHT)"] <= end_date)
+    ).any()
+    if not has_data_in_range:
+        period_label = str(start_date) if start_date == end_date else f"{start_date} to {end_date}"
+        print(f"No calls found for agent_id={agent_id} in the period {period_label}. Nothing to report.")
+        sys.exit(1)
 
     # 4. Build the aggregated EOD summary covering the whole period.
     eod_df = eod_report.build_eod_report(detail_log, start_date, end_date, agent_id)
@@ -99,7 +108,7 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
         val_filename = config.EOD_VALIDATION_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
 
     report_path = excel_writer.resolve_output_path(eod_dir / report_filename)
-    excel_writer.write_report(eod_df, range_detail_log, report_path)
+    excel_writer.write_eod_report_sheets(eod_df, range_detail_log, report_path)
     print(f"EOD report generated: {report_path}")
 
     # 7. Build and write the validation report alongside the EOD report.
