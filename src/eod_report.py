@@ -107,10 +107,10 @@ def build_eod_report(call_detail_log: pd.DataFrame, start_date, end_date, agent_
 
         # TOMORROW'S PLAN Section
         ("TOMORROW'S PLAN", ""),
-        ("Target Call Volume", ""),
+        ("Target Call Volume", "[N]"),
         ("Expected List from Globe (ETA)", ""),
         ("Calling Window", "9:00 AM - 7:00 PM PHT"),
-        ("Phase Gate Status", ""),
+        ("Phase Gate Status", "GO"),
     ]
 
     return pd.DataFrame(metrics, columns=["Metric", "Value"])

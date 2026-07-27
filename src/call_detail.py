@@ -83,7 +83,6 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Conversation ID": df["conversation_id"],
         "Contact Number": df["contact_number_clean"],
         "Status": df["twilio_final_status"].apply(_map_status).apply(_blank_if_missing),
-        "Call Completed": df.get("call_completed", pd.Series(dtype=object)).apply(_call_completed_display),
         "Call Duration (sec)": df["call_duration_sec"],
         "Agreed to Keep SIM Active": df.apply(_agreed_to_keep_sim, axis=1),
         "Customer Disposition": df.get("customer_disposition", pd.Series(dtype=object)),
@@ -91,6 +90,9 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Question Topics": df.get("question_topics", pd.Series(dtype=object)).apply(_format_question_topics),
         "Call Date (PHT)": df["start_dt_pht"].dt.date,
         "Call Time (PHT)": df["start_dt_pht"].dt.strftime("%H:%M:%S"),
+        # Extra column beyond the reference format's 10 columns — appended
+        # trailing so columns A-J still match the reference exactly.
+        "Call Completed": df.get("call_completed", pd.Series(dtype=object)).apply(_call_completed_display),
     })
 
     return log.sort_values(["Call Date (PHT)", "Call Time (PHT)"]).reset_index(drop=True)

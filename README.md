@@ -153,10 +153,15 @@ python main.py --mode eod --agent-id 1060 --start-date 2026-06-29 --end-date 202
 multi-day → `SIM_Expiry_EOD_Report_{agent_id}_{start}_to_{end}.xlsx`.
 Lands in `output/eod/{date-or-range}/`.
 
-**Report structure:** the EOD Report sheet is **one aggregated row** for the
-whole period (not one row per day), with a `Report Period` and `Days in Range`
-field. The Call Detail Log sheet lists every call in that period with a
-`Call Date (PHT)` column so you can still see which day each row belongs to.
+**Report structure:** the workbook has 2 sheets. **EOD Report** is a
+dashboard-style summary — one row per metric for the whole period (not one
+row per day) — with a Today/Yesterday/Δ comparison table; the Yesterday/Δ
+columns and the "Day X of 14" subtitle are left as placeholders since the
+pipeline doesn't track prior-day report data. Cells that need a human to
+fill them in day-to-day (FinOps, issues/changes) are highlighted yellow.
+**Call Detail Log** lists every call in the period with a
+`Call Date (PHT)` column so you can still see which day each row belongs
+to.
 
 **Also generated:** a companion `SIM_Expiry_EOD_Validation_{agent_id}_{date}.xlsx`
 workbook is written alongside the EOD Report on every run, in the same

@@ -99,7 +99,7 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
         val_filename = config.EOD_VALIDATION_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
 
     report_path = excel_writer.resolve_output_path(eod_dir / report_filename)
-    excel_writer.write_report(eod_df, range_detail_log, report_path)
+    excel_writer.write_eod_report_sheets(eod_df, range_detail_log, report_path)
     print(f"EOD report generated: {report_path}")
 
     # 7. Build and write the validation report alongside the EOD report.
