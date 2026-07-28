@@ -57,7 +57,7 @@ DASHBOARD_ROWS = [
     _dash_row("Calls Dialled - Target", "Calls Dialed - Target", no_delta=True),
     _dash_row("Calls Dialled - Actual", "Calls Dialed - Actual"),
     _dash_row("Calls Connected", "Calls Connected", highlight=True),
-    _dash_row("No Answer (all retries exhausted)", "No Answer"),
+    _dash_row("No Answer", "No Answer"),
     _dash_row("Busy", "Busy"),
     _dash_row("Failed", "Failed"),
     _dash_row("System Errors", special="system_errors"),
@@ -183,6 +183,7 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame):
         return PatternFill("solid", start_color=color, end_color=color)
 
     row_of = {}
+    system_errors_row = None
     body_row = 5
     for spec in DASHBOARD_ROWS:
         if spec["label"] == "__SECTION__":
@@ -217,6 +218,10 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame):
 
         if spec["special"] == "system_errors":
             value = f"=MAX(0,B{row_of['Calls Dialed - Target']}-B{row_of['Calls Dialed - Actual']})"
+            system_errors_row = body_row
+        elif spec["source"] == "Retries Queued for Tomorrow":
+            base_retries = value_of[spec["source"]]
+            value = f"=MAX(0,{base_retries}+B{system_errors_row})"
         else:
             value = value_of[spec["source"]]
         b = ws.cell(row=body_row, column=2, value=value)
@@ -306,6 +311,7 @@ _SHEET_TITLES = {
     "field_completeness": "Field Completeness",
     "calculation_audit": "Calculation Audit",
     "data_quality_issues": "Data Quality Issues",
+    "duplicate_contacts": "Duplicate Contacts",
 }
 
 

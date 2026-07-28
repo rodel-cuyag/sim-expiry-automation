@@ -7,18 +7,14 @@ the columns from the Globe SIM Expiry plan's call detail log template.
 
 import pandas as pd
 
-# Priority order for picking the "best" record among same-day duplicate
-# dials to the same number (lower number = higher priority). Anything not
-# in this map (i.e. a blank/unmatched status) is treated as lowest priority.
-_STATUS_PRIORITY = {
-    "Connected": 0,
-    "Busy": 1,
-    "No Answer": 2,
-    "Failed": 3,
-    "Ringing": 4,
-    "Initiated": 5,
-}
-_BLANK_STATUS_PRIORITY = len(_STATUS_PRIORITY)
+# Priority tiers for picking the "best" record among same-day duplicate
+# dials to the same number. "Connected" always wins outright. Busy/No
+# Answer/Failed are no longer ranked against each other - among those (or
+# any other non-blank status), the latest Call Time wins instead. A blank/
+# unmatched status is always lowest priority.
+_STATUS_PRIORITY = {"Connected": 0}
+_NON_BLANK_STATUS_PRIORITY = 1
+_BLANK_STATUS_PRIORITY = 2
 
 
 def _blank_if_missing(value):
@@ -59,8 +55,7 @@ def _map_status(twilio_status):
         no-answer -> No Answer
         busy -> Busy
         failed -> Failed
-        ringing -> Ringing
-        initiated -> Initiated
+        ringing -> No Answer
     """
     if pd.isna(twilio_status):
         return None
@@ -71,8 +66,7 @@ def _map_status(twilio_status):
         "no-answer": "No Answer",
         "busy": "Busy",
         "failed": "Failed",
-        "ringing": "Ringing",
-        "initiated": "Initiated",
+        "ringing": "No Answer",
     }
 
     return status_map.get(twilio_status, twilio_status)
@@ -83,9 +77,9 @@ def _dedupe_duplicate_calls(log: pd.DataFrame) -> pd.DataFrame:
     Collapses repeat same-day dials to the same Contact Number down to one
     record per (Contact Number, Call Date (PHT)):
 
-      - Same status across duplicates -> keep the latest (by Call Time).
-      - Different statuses -> keep the highest-priority status (see
-        _STATUS_PRIORITY), breaking ties by latest Call Time.
+      - "Connected" always wins outright if present among the duplicates.
+      - Otherwise (including ties among Busy/No Answer/Failed, or repeats
+        of the same status), keep the latest record by Call Time.
 
     Rows with a blank Contact Number are never collapsed against each
     other (no reliable way to confirm they're the same customer).
@@ -97,8 +91,9 @@ def _dedupe_duplicate_calls(log: pd.DataFrame) -> pd.DataFrame:
     if dedupable.empty:
         return log
 
-    dedupable["_priority"] = (
-        dedupable["Status"].map(_STATUS_PRIORITY).fillna(_BLANK_STATUS_PRIORITY)
+    dedupable["_priority"] = dedupable["Status"].apply(
+        lambda s: _BLANK_STATUS_PRIORITY if pd.isna(s)
+        else _STATUS_PRIORITY.get(s, _NON_BLANK_STATUS_PRIORITY)
     )
     dedupable = dedupable.sort_values(
         ["Contact Number", "Call Date (PHT)", "_priority", "Call Time (PHT)"],
@@ -111,20 +106,22 @@ def _dedupe_duplicate_calls(log: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([deduped, passthrough], ignore_index=True)
 
 
-def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
+def build_raw_call_rows(working_table: pd.DataFrame) -> pd.DataFrame:
     """
-    Transforms the merged working table into the final Call Detail Log
-    DataFrame, ready to write to Excel.
+    Transforms the merged working table into one row per individual call,
+    before same-day duplicate-number collapsing. Exposed separately from
+    build_call_detail_log so callers (e.g. the validation report) can audit
+    which rows got collapsed as duplicates.
 
     Status: sourced exclusively from the Twilio call-progress journey
     (twilio_final_status, derived in preprocessing.extract_twilio_details
     from twilio_webhook_events.csv). Mapped to display-friendly values:
-    "Connected", "No Answer", "Busy", "Failed", etc. If a conversation_id
-    has no matching Twilio events, Status is left blank.
+    "Connected", "No Answer", "Busy", "Failed". If a conversation_id has no
+    matching Twilio events, Status is left blank.
     """
     df = working_table.copy()
 
-    log = pd.DataFrame({
+    return pd.DataFrame({
         "Conversation ID": df["conversation_id"],
         "Contact Number": df["contact_number_clean"],
         "Status": df["twilio_final_status"].apply(_map_status).apply(_blank_if_missing),
@@ -140,5 +137,13 @@ def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
         "Call Completed": df.get("call_completed", pd.Series(dtype=object)).apply(_call_completed_display),
     })
 
+
+def build_call_detail_log(working_table: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transforms the merged working table into the final Call Detail Log
+    DataFrame, ready to write to Excel (one row per Contact Number per
+    Call Date - see _dedupe_duplicate_calls).
+    """
+    log = build_raw_call_rows(working_table)
     log = _dedupe_duplicate_calls(log)
     return log.sort_values(["Call Date (PHT)", "Call Time (PHT)"]).reset_index(drop=True)

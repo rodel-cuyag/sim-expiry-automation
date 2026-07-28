@@ -12,7 +12,7 @@ Generated automatically alongside every EOD report run.
 import json
 
 import pandas as pd
-from src import data_loader
+from src import call_detail, data_loader
 
 
 # ── Sheet 1: Join Summary ─────────────────────────────────────────
@@ -189,7 +189,14 @@ def _build_calculation_audit(detail_log, eod_df, start_date, end_date):
     total_min = round(total_sec / 60, 1) if total_sec else None
     avg_dur = round(dur.mean(), 1) if not dur.empty else None
 
-    retries = failed + no_answer + busy
+    target_raw = eod_lookup.get("Calls Dialed - Target", "")
+    try:
+        target_val = float(target_raw)
+    except (TypeError, ValueError):
+        target_val = 0
+    system_errors = max(0, target_val - dialed)
+
+    retries = max(0, failed + no_answer + busy + system_errors)
 
     rows = []
 
@@ -259,10 +266,14 @@ def _build_calculation_audit(detail_log, eod_df, start_date, end_date):
              "AVERAGE(Call Duration (sec) WHERE Status='Connected')",
              f"{len(dur)} rows, sum={total_sec} sec", avg_dur,
              "Avg. Call Duration - Connected (seconds)")
-    add_step(12, "Retries Queued for Tomorrow",
-             "Failed + No Answer + Busy",
-             f"{failed} + {no_answer} + {busy} = {retries}", retries,
-             "Retries Queued for Tomorrow")
+    add_step(12, "System Errors",
+             "MAX(0, Calls Dialed - Target - Calls Dialed - Actual)",
+             f"{target_val} - {dialed} = {target_val - dialed}", system_errors,
+             "System Errors")
+    add_step(13, "Retries Queued for Tomorrow",
+             "Failed + No Answer + Busy + System Errors",
+             f"{failed} + {no_answer} + {busy} + {system_errors} = {retries}",
+             retries, "Retries Queued for Tomorrow")
 
     return pd.DataFrame(rows)
 
@@ -334,6 +345,16 @@ def _build_data_quality_issues(working_table, detail_log,
                 "Severity": "Medium",
             })
 
+        if pd.notna(reliability) and (
+            "Unparseable" in str(reliability) or "unexpected length" in str(reliability)
+        ):
+            issues.append({
+                "Conversation ID": cid,
+                "Issue": "Invalid Contact Number Format",
+                "Detail": str(reliability),
+                "Severity": "High",
+            })
+
     if not issues:
         return pd.DataFrame(columns=[
             "Conversation ID", "Issue", "Detail", "Severity",
@@ -342,12 +363,59 @@ def _build_data_quality_issues(working_table, detail_log,
     return pd.DataFrame(issues)
 
 
+# ── Sheet 5: Duplicate Contacts ───────────────────────────────────
+
+def _build_duplicate_contacts(working_table, start_date=None, end_date=None):
+    """
+    Audit trail for same-day duplicate-number dedup: every row that took
+    part in a (Contact Number, Call Date) collision, which one dedup kept,
+    and how many rows were in the group. Cross-format duplicates (e.g.
+    "639673187061" vs "09673187061") are caught here too, since both the
+    raw log and the final log key off the same normalized Contact Number
+    (see preprocessing.normalize_ph_digits).
+    """
+    columns = [
+        "Contact Number", "Call Date (PHT)", "Conversation ID",
+        "Call Time (PHT)", "Status", "Outcome", "Duplicate Group Size",
+    ]
+
+    raw_log = call_detail.build_raw_call_rows(working_table)
+    if start_date and end_date:
+        raw_log = raw_log[
+            (raw_log["Call Date (PHT)"] >= start_date)
+            & (raw_log["Call Date (PHT)"] <= end_date)
+        ]
+
+    has_number = raw_log["Contact Number"].notna()
+    dupable = raw_log[has_number].copy()
+    if dupable.empty:
+        return pd.DataFrame(columns=columns)
+
+    dupable["_group_size"] = dupable.groupby(
+        ["Contact Number", "Call Date (PHT)"]
+    )["Conversation ID"].transform("size")
+    dup_rows = dupable[dupable["_group_size"] > 1].copy()
+
+    if dup_rows.empty:
+        return pd.DataFrame(columns=columns)
+
+    kept_ids = set(call_detail.build_call_detail_log(working_table)["Conversation ID"])
+    dup_rows["Outcome"] = dup_rows["Conversation ID"].apply(
+        lambda cid: "Kept" if cid in kept_ids else "Merged (duplicate)"
+    )
+    dup_rows = dup_rows.rename(columns={"_group_size": "Duplicate Group Size"})
+
+    return dup_rows.sort_values(
+        ["Contact Number", "Call Date (PHT)", "Call Time (PHT)"]
+    )[columns].reset_index(drop=True)
+
+
 # ── Public entry point ────────────────────────────────────────────
 
 def build_validation_report(working_table, detail_log, eod_df,
                              start_date, end_date, agent_id):
     """
-    Build all 4 validation-report sheets and return them as a
+    Build all 5 validation-report sheets and return them as a
     {sheet_key: DataFrame} dict ready for write_validation_report().
     """
     return {
@@ -360,4 +428,6 @@ def build_validation_report(working_table, detail_log, eod_df,
         "data_quality_issues": _build_data_quality_issues(working_table,
                                                           detail_log,
                                                           start_date, end_date),
+        "duplicate_contacts": _build_duplicate_contacts(working_table,
+                                                        start_date, end_date),
     }
