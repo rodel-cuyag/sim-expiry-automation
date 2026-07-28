@@ -15,11 +15,12 @@ Usage:
 """
 
 import argparse
+import datetime
 import sys
 
 import pandas as pd
 
-from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report
+from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report, prior_day
 from src.data_loader import MissingInputFileError, MissingHeaderError
 from src.filename_dates import UnparsableFilenameDateError
 
@@ -107,8 +108,15 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
         report_filename = config.OUTPUT_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
         val_filename = config.EOD_VALIDATION_FILENAME_TEMPLATE_RANGE.format(agent_id=agent_id, start_date=start_date, end_date=end_date)
 
+    # 6b. Look up yesterday's saved report (single-day runs only) to fill
+    #     in the "Yesterday" column.
+    previous_day_values = {}
+    if start_date == end_date:
+        previous_date = start_date - datetime.timedelta(days=1)
+        previous_day_values = prior_day.load_previous_day_values(agent_id, previous_date)
+
     report_path = excel_writer.resolve_output_path(eod_dir / report_filename)
-    excel_writer.write_eod_report_sheets(eod_df, range_detail_log, report_path)
+    excel_writer.write_eod_report_sheets(eod_df, range_detail_log, report_path, previous_day_values=previous_day_values)
     print(f"EOD report generated: {report_path}")
 
     # 7. Build and write the validation report alongside the EOD report.

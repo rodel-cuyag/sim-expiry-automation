@@ -89,6 +89,29 @@ def extract_call_duration(conversations: pd.DataFrame) -> pd.Series:
     return conversations["call_logs"].apply(duration_seconds)
 
 
+def normalize_ph_digits(digits: str):
+    """
+    Normalizes a bare digit string to the 63XXXXXXXXXX PH mobile format
+    where possible. Returns (normalized, is_valid); is_valid is False when
+    the digit count/prefix doesn't match a recognized PH mobile pattern
+    (normalized still holds the digits as-is in that case, or None if
+    there were no digits at all). Shared by clean_contact_number and the
+    Twilio "To" number recovery in extract_twilio_details so numbers from
+    either source always land in the same canonical form (e.g.
+    "639673187061", "09673187061", and "9673187061" all normalize to the
+    same "639673187061").
+    """
+    if len(digits) == 11 and digits.startswith("0"):
+        return "63" + digits[1:], True
+    if len(digits) == 10 and not digits.startswith("0"):
+        return "63" + digits, True
+    if len(digits) == 12 and digits.startswith("63"):
+        return digits, True
+    if digits:
+        return digits, False
+    return None, False
+
+
 def clean_contact_number(raw_value):
     """
     Cleans a single contact_number value and reports how trustworthy the
@@ -129,14 +152,11 @@ def clean_contact_number(raw_value):
         )
 
     digits = re.sub(r"\D", "", v)
-    if len(digits) == 11 and digits.startswith("0"):
-        return "63" + digits[1:], "Complete"
-    if len(digits) == 10 and not digits.startswith("0"):
-        return "63" + digits, "Complete"
-    if len(digits) == 12 and digits.startswith("63"):
-        return digits, "Complete"
     if digits:
-        return digits, "Complete - unexpected length, verify manually"
+        normalized, is_valid = normalize_ph_digits(digits)
+        if is_valid:
+            return normalized, "Complete"
+        return normalized, "Complete - unexpected length, verify manually"
     return v, "Unparseable"
 
 
@@ -225,7 +245,7 @@ def extract_twilio_details(twilio_events: pd.DataFrame) -> pd.DataFrame:
         # alongside the in-flight stages (ringing/initiated/in-progress)
         # in this data, so checking in this order reliably picks the
         # actual outcome of the call.
-        priority = ["completed", "no-answer", "busy", "failed", "in-progress", "ringing", "initiated"]
+        priority = ["completed", "no-answer", "busy", "failed", "in-progress", "ringing"]
         final_status = next((status for status in priority if status in events), None)
 
         # Find the latest sequence number (highest number = furthest stage reached)
@@ -234,9 +254,13 @@ def extract_twilio_details(twilio_events: pd.DataFrame) -> pd.DataFrame:
 
         for stage_details in events.values():
             if isinstance(stage_details, dict):
-                # Extract contact number
+                # Extract contact number, normalized to the same
+                # 63XXXXXXXXXX form as contact_number_clean so numbers
+                # recovered from Twilio match up with conversations.csv
+                # numbers for duplicate detection.
                 if stage_details.get("To") and contact_number is None:
-                    contact_number = re.sub(r"\D", "", stage_details["To"])
+                    to_digits = re.sub(r"\D", "", stage_details["To"])
+                    contact_number, _ = normalize_ph_digits(to_digits)
 
                 # Track highest sequence number
                 seq = stage_details.get("SequenceNumber")
