@@ -55,7 +55,7 @@ def _dash_row(label, source=None, highlight=False, yellow=False, no_delta=False,
 # are included even though the reference dashboard doesn't show them, for
 # consistency with the metrics computed elsewhere (see plan doc).
 DASHBOARD_ROWS = [
-    _dash_row("Calls Dialled - Target", "Calls Dialed - Target"),
+    _dash_row("Calls Dialled - Target", "Calls Dialed - Target", yellow=True),
     _dash_row("Calls Dialled - Actual", "Calls Dialed - Actual"),
     _dash_row("Calls Connected", "Calls Connected", highlight=True),
     _dash_row("No Answer", "No Answer"),
@@ -78,11 +78,21 @@ DASHBOARD_ROWS = [
     _dash_row("Changes deployed today", "Changes Deployed Today", yellow=True, no_delta=True),
     _dash_row("Changes pending approval for tomorrow", "Changes Pending Approval for Tomorrow", yellow=True, no_delta=True),
     _dash_row("__SECTION__", special="TOMORROW'S PLAN"),
-    _dash_row("Target call volume", "Target Call Volume", no_delta=True),
-    _dash_row("Expected list from Globe (ETA)", "Expected List from Globe (ETA)", no_delta=True),
+    _dash_row("Target call volume", "Target Call Volume", no_delta=True, yellow=True),
+    _dash_row("Expected list from Globe (ETA)", "Expected List from Globe (ETA)", no_delta=True, yellow=True),
     _dash_row("Calling window", "Calling Window", no_delta=True),
-    _dash_row("Phase gate status", "Phase Gate Status", no_delta=True, special="phase_gate"),
+    _dash_row("Phase gate status", "Phase Gate Status", no_delta=True, special="phase_gate", yellow=True),
 ]
+
+# Rows that get comma-thousands, no-decimal number formatting ("#,##0") —
+# the core call-volume counts only. Averages, percentage rates (which are
+# literal "84.3%" strings, not numeric), FINOPS $ amounts, and issue counts
+# are intentionally excluded.
+COUNT_FORMAT_SOURCES = {
+    "Calls Dialed - Target", "Calls Dialed - Actual", "Calls Connected",
+    "No Answer", "Busy", "Failed", "Total Completed Calls",
+    "Agreed to Keep SIM Active (count)", "Retries Queued for Tomorrow",
+}
 
 # Call Detail Log column widths matching the reference format exactly
 # (unspecified columns, e.g. G/J, keep their auto-computed width).
@@ -238,11 +248,15 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame, previous_day_values: dict
             value = f"=MAX(0,{base_retries}+B{system_errors_row})"
         else:
             value = value_of[spec["source"]]
+        is_count_row = spec["source"] in COUNT_FORMAT_SOURCES or spec["special"] == "system_errors"
+
         b = ws.cell(row=body_row, column=2, value=value)
         b.font = value_font
         b.fill = YELLOW_FILL if spec["yellow"] else _fill(band_color)
         b.alignment = Alignment(horizontal="left")
         b.border = _FULL_BORDER
+        if is_count_row:
+            b.number_format = "#,##0"
 
         in_core_block = idx < first_section_idx
 
@@ -265,7 +279,10 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame, previous_day_values: dict
         c = ws.cell(row=body_row, column=3, value=yesterday_value)
         c.font = delta_font
         c.fill = _fill(band_color)
+        c.alignment = Alignment(horizontal="left")
         c.border = _FULL_BORDER
+        if is_count_row:
+            c.number_format = "#,##0"
 
         if spec["no_delta"]:
             delta_value = "—"
@@ -282,7 +299,10 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame, previous_day_values: dict
         d = ws.cell(row=body_row, column=4, value=delta_value)
         d.font = delta_font
         d.fill = _fill(band_color)
+        d.alignment = Alignment(horizontal="left")
         d.border = _FULL_BORDER
+        if is_count_row:
+            d.number_format = "#,##0"
 
         if spec["special"] == "phase_gate":
             ws.conditional_formatting.add(
