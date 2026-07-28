@@ -41,10 +41,11 @@ _THIN = Side(style="thin")
 _FULL_BORDER = Border(top=_THIN, bottom=_THIN, left=_THIN, right=_THIN)
 
 
-def _dash_row(label, source=None, highlight=False, yellow=False, no_delta=False, special=None):
+def _dash_row(label, source=None, highlight=False, yellow=False, no_delta=False, special=None, percent_delta=False):
     return {
         "label": label, "source": source, "highlight": highlight,
         "yellow": yellow, "no_delta": no_delta, "special": special,
+        "percent_delta": percent_delta,
     }
 
 
@@ -54,7 +55,7 @@ def _dash_row(label, source=None, highlight=False, yellow=False, no_delta=False,
 # are included even though the reference dashboard doesn't show them, for
 # consistency with the metrics computed elsewhere (see plan doc).
 DASHBOARD_ROWS = [
-    _dash_row("Calls Dialled - Target", "Calls Dialed - Target", no_delta=True),
+    _dash_row("Calls Dialled - Target", "Calls Dialed - Target"),
     _dash_row("Calls Dialled - Actual", "Calls Dialed - Actual"),
     _dash_row("Calls Connected", "Calls Connected", highlight=True),
     _dash_row("No Answer", "No Answer"),
@@ -64,10 +65,10 @@ DASHBOARD_ROWS = [
     _dash_row("Total Completed Calls", "Total Completed Calls"),
     _dash_row("Total Call Duration (minutes)", "Total Call Duration (minutes)"),
     _dash_row("Avg. Call Duration - Connected (seconds)", "Avg. Call Duration - Connected (seconds)"),
-    _dash_row("Connection Rate (Connected / Dialled)", "Connection Rate (Connected / Dialed)", highlight=True),
+    _dash_row("Connection Rate (Connected / Dialled)", "Connection Rate (Connected / Dialed)", highlight=True, percent_delta=True),
     _dash_row("Agreed to Keep SIM Active (count)", "Agreed to Keep SIM Active (count)", highlight=True),
-    _dash_row("Conversion Rate (Agreed / Connected)", "Conversion Rate (Agreed / Connected)", highlight=True),
-    _dash_row("Retries Queued for Tomorrow", "Retries Queued for Tomorrow", no_delta=True),
+    _dash_row("Conversion Rate (Agreed / Connected)", "Conversion Rate (Agreed / Connected)", highlight=True, percent_delta=True),
+    _dash_row("Retries Queued for Tomorrow", "Retries Queued for Tomorrow"),
     _dash_row("__SECTION__", special="FINOPS"),
     _dash_row("LLM Inference Cost", "LLM Inference Cost (USD)", yellow=True),
     _dash_row("Total Daily Spend", "Total Daily Spend (USD)", yellow=True, highlight=True),
@@ -135,17 +136,27 @@ def _write_dataframe(ws, df: pd.DataFrame):
     ws.freeze_panes = "A2"
 
 
-def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame):
+def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame, previous_day_values: dict = None):
     """
     Writes the "EOD Report" sheet: big navy header, Today/Yesterday/Delta
     comparison table. "Today" values are literal values computed in Python
     (from eod_df), not formulas — there's no separate source sheet to pull
-    from. Yesterday/Delta and the "Day X of N" campaign counter are left as
-    blank/bracket placeholders — the pipeline doesn't track prior-day report
-    data. "System Errors" is the one live formula, referencing the Target/
+    from. "System Errors" is the one live formula, referencing the Target/
     Actual rows on this same sheet.
+
+    Yesterday (Column C) is filled in for the core dashboard rows (5-18)
+    from *previous_day_values* (a {label: value} lookup from the previous
+    day's saved report — see prior_day.py) when available, else left
+    blank. Delta (Column D) becomes a live Excel formula for those same
+    rows once C is populated; rows from the FINOPS section onward, and
+    the "Day X of N" campaign counter, stay blank/bracket placeholders —
+    those aren't derived from prior-day report data.
     """
     value_of = dict(eod_df.itertuples(index=False))
+    previous_day_values = previous_day_values or {}
+    first_section_idx = next(
+        i for i, s in enumerate(DASHBOARD_ROWS) if s["label"] == "__SECTION__"
+    )
 
     ws.merge_cells("A1:D1")
     title = ws["A1"]
@@ -182,10 +193,13 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame):
     def _fill(color):
         return PatternFill("solid", start_color=color, end_color=color)
 
+    def _available(label):
+        return previous_day_values.get(label) not in (None, "")
+
     row_of = {}
     system_errors_row = None
     body_row = 5
-    for spec in DASHBOARD_ROWS:
+    for idx, spec in enumerate(DASHBOARD_ROWS):
         if spec["label"] == "__SECTION__":
             ws.merge_cells(start_row=body_row, start_column=2, end_row=body_row, end_column=4)
             a = ws.cell(row=body_row, column=1)
@@ -230,12 +244,42 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame):
         b.alignment = Alignment(horizontal="left")
         b.border = _FULL_BORDER
 
-        c = ws.cell(row=body_row, column=3, value=None)
+        in_core_block = idx < first_section_idx
+
+        yesterday_value = None
+        if spec["special"] == "system_errors":
+            if _available("Calls Dialled - Actual"):
+                yesterday_value = (
+                    f"=MAX(0,C{row_of['Calls Dialed - Target']}-C{row_of['Calls Dialed - Actual']})"
+                )
+        elif spec["source"] == "Retries Queued for Tomorrow":
+            if all(_available(lbl) for lbl in ("No Answer", "Busy", "Failed")):
+                yesterday_value = (
+                    f"=MAX(0,C{row_of['No Answer']}+C{row_of['Busy']}+C{row_of['Failed']}+C{system_errors_row})"
+                )
+        elif in_core_block:
+            candidate = previous_day_values.get(spec["label"])
+            if candidate not in (None, ""):
+                yesterday_value = candidate
+
+        c = ws.cell(row=body_row, column=3, value=yesterday_value)
         c.font = delta_font
         c.fill = _fill(band_color)
         c.border = _FULL_BORDER
 
-        d = ws.cell(row=body_row, column=4, value="—" if spec["no_delta"] else "[+/-N]")
+        if spec["no_delta"]:
+            delta_value = "—"
+        elif not in_core_block:
+            delta_value = "[+/-N]"
+        elif spec["percent_delta"]:
+            delta_value = (
+                f'=IFERROR(TEXT(VALUE(SUBSTITUTE(B{body_row},"%",""))'
+                f'-VALUE(SUBSTITUTE(C{body_row},"%","")),"+0.0;-0.0")&"%","")'
+            )
+        else:
+            delta_value = f'=IF(AND(ISNUMBER(B{body_row}),ISNUMBER(C{body_row})),B{body_row}-C{body_row},"")'
+
+        d = ws.cell(row=body_row, column=4, value=delta_value)
         d.font = delta_font
         d.fill = _fill(band_color)
         d.border = _FULL_BORDER
@@ -266,7 +310,7 @@ def _write_eod_summary_sheet(ws, eod_df: pd.DataFrame):
     ws.column_dimensions["D"].width = 12
 
 
-def write_eod_report_sheets(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path):
+def write_eod_report_sheets(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, output_path, previous_day_values: dict = None):
     """
     Creates the EOD-mode 2-sheet workbook: 'EOD Report' (dashboard-style
     summary sheet) and 'Call Detail Log'.
@@ -275,7 +319,7 @@ def write_eod_report_sheets(eod_df: pd.DataFrame, call_detail_df: pd.DataFrame, 
 
     eod_sheet = wb.active
     eod_sheet.title = "EOD Report"
-    _write_eod_summary_sheet(eod_sheet, eod_df)
+    _write_eod_summary_sheet(eod_sheet, eod_df, previous_day_values)
 
     detail_sheet = wb.create_sheet("Call Detail Log")
     _write_dataframe(detail_sheet, call_detail_df)
