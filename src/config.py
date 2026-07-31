@@ -77,6 +77,16 @@ def get_eod_output_dir(start_date, end_date):
     return EOD_OUTPUT_DIR / folder_name
 
 
+# Each run within a date folder gets its own time-stamped subfolder, so
+# reruns for the same date never mix their files together.
+def get_eod_run_output_dir(start_date, end_date, run_time):
+    return get_eod_output_dir(start_date, end_date) / f"{run_time:%H-%M-%S}"
+
+
+def get_customer_list_run_output_dir(as_of_date, run_time):
+    return CUSTOMER_LIST_OUTPUT_DIR / str(as_of_date) / f"{run_time:%H-%M-%S}"
+
+
 # ── Input archiving ────────────────────────────────────────────────
 # After a successful run, processed input files are moved out of data/eod/
 # and data/customer_list/ into dated folders here, so the input folder

@@ -21,8 +21,9 @@ from src import config
 def _find_previous_report(agent_id, previous_date):
     """
     Returns the most recently modified EOD report file for *previous_date*
-    (covering any `resolve_output_path` rerun suffixes like " (1).xlsx"),
-    or None if no prior report exists.
+    (searching recursively across that date's run-time subfolders, and
+    covering any `resolve_output_path` rerun suffixes like " (1).xlsx"
+    within a given run), or None if no prior report exists.
     """
     eod_dir = config.get_eod_output_dir(previous_date, previous_date)
     if not eod_dir.exists():
@@ -31,7 +32,7 @@ def _find_previous_report(agent_id, previous_date):
     stem = config.OUTPUT_FILENAME_TEMPLATE_SINGLE.format(
         agent_id=agent_id, start_date=previous_date,
     ).rsplit(".xlsx", 1)[0]
-    candidates = list(eod_dir.glob(f"{stem}*.xlsx"))
+    candidates = list(eod_dir.rglob(f"{stem}*.xlsx"))
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)

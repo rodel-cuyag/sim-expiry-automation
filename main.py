@@ -97,8 +97,9 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
         (detail_log["Call Date (PHT)"] >= start_date) & (detail_log["Call Date (PHT)"] <= end_date)
     ].reset_index(drop=True)
 
-    # 6. Write both sheets to a date-stamped subfolder inside output/eod/.
-    eod_dir = config.get_eod_output_dir(start_date, end_date)
+    # 6. Write both sheets to a date- and run-time-stamped subfolder inside output/eod/.
+    run_time = datetime.datetime.now()
+    eod_dir = config.get_eod_run_output_dir(start_date, end_date, run_time)
     eod_dir.mkdir(parents=True, exist_ok=True)
 
     if start_date == end_date:
@@ -128,7 +129,6 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
     print(f"Validation report generated: {val_path}")
 
     # 8. Archive the processed input files so data/eod/ is ready for the next drop.
-    run_time = datetime.datetime.now()
     matched_paths = data_loader.discover_eod_file_paths()
     archive_dir = config.get_eod_archive_dir(start_date, end_date, run_time)
     archiver.archive_files(list(matched_paths.values()), archive_dir)
@@ -184,8 +184,9 @@ def run_priority_list(as_of_date=None, input_path=None):
         ],
     })
 
-    # 6. Write outputs inside a date-stamped subfolder.
-    output_dir = config.CUSTOMER_LIST_OUTPUT_DIR / str(as_of_date)
+    # 6. Write outputs inside a date- and run-time-stamped subfolder.
+    run_time = datetime.datetime.now()
+    output_dir = config.get_customer_list_run_output_dir(as_of_date, run_time)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     priority_path = None
@@ -218,7 +219,6 @@ def run_priority_list(as_of_date=None, input_path=None):
     # 7. Archive the input file (only if it was auto-discovered, not an
     #    explicit --input override) so data/customer_list/ is ready for next time.
     if input_path is None:
-        run_time = datetime.datetime.now()
         archive_dir = config.get_customer_list_archive_dir(as_of_date, run_time)
         archiver.archive_files([path], archive_dir)
         print(f"Input file archived to: {archive_dir}")

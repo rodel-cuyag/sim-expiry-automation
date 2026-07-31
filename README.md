@@ -68,8 +68,10 @@ Generates one of two reports:
    python main.py --mode priority-list --as-of-date 2026-07-10           # Priority List, specific date
    python main.py --mode priority-list --input path/to/other.xlsx        # Priority List, override input file
 ```
-   The generated files land in `output/eod/{date-or-range}/` (EOD mode) or
-   `output/customer_list/{date}/` (Priority List mode) — both date-stamped subfolders.
+   The generated files land in `output/eod/{date-or-range}/{HH-MM-SS}/` (EOD mode) or
+   `output/customer_list/{date}/{HH-MM-SS}/` (Priority List mode) — a date-stamped
+   subfolder for the report period, with a further run-time-stamped subfolder so
+   reruns for the same period never mix their files together.
    On a successful run, the input file(s) that were used are also moved out of
    `data/eod/` or `data/customer_list/` into `archive/` (see below), so the
    input folder is empty and ready for the next drop.
@@ -160,7 +162,9 @@ python main.py --mode eod --agent-id 1060 --start-date 2026-06-29 --end-date 202
 
 **Output naming:** single-day → `SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx`;
 multi-day → `SIM_Expiry_EOD_Report_{agent_id}_{start}_to_{end}.xlsx`.
-Lands in `output/eod/{date-or-range}/`.
+Lands in `output/eod/{date-or-range}/{HH-MM-SS}/`, where `{HH-MM-SS}` is the
+run's clock time — each run of the tool gets its own subfolder, even for the
+same date-or-range.
 
 **Report structure:** the workbook has 2 sheets. **EOD Report** is a
 dashboard-style summary — one row per metric for the whole period (not one
@@ -229,7 +233,8 @@ Three input formats are accepted, all normalizing to the same `+63XXXXXXXXXX`:
 - `09` + 9 digits (11 digits total), e.g. `09987665432` → `+639987665432`
 - `9` + 9 digits (10 digits total), e.g. `9987665432` → `+639987665432`
 
-**Output:** two files in `output/customer_list/{date}/` (date-stamped subfolder):
+**Output:** two files in `output/customer_list/{date}/{HH-MM-SS}/` (a date-stamped
+subfolder, with a further run-time-stamped subfolder per run):
 
 - `SIM_Expiry_Priority_List_{date}.csv` — every record with
   `days_remaining > 0` (no upper cutoff), with `customer_phone` normalized
