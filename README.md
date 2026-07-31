@@ -70,6 +70,9 @@ Generates one of two reports:
 ```
    The generated files land in `output/eod/{date-or-range}/` (EOD mode) or
    `output/customer_list/{date}/` (Priority List mode) — both date-stamped subfolders.
+   On a successful run, the input file(s) that were used are also moved out of
+   `data/eod/` or `data/customer_list/` into `archive/` (see below), so the
+   input folder is empty and ready for the next drop.
 
 ---
 
@@ -108,11 +111,17 @@ sim_expiry_automation/
 │   └── eod/
 │       └── {date-or-range}/   → generated: SIM_Expiry_EOD_Report_{agent_id}_{date}.xlsx
 │                                + SIM_Expiry_EOD_Validation_{agent_id}_{date}.xlsx
+├── archive/                    → processed input files, moved here after a successful run
+│   ├── customer_list/
+│   │   └── {date}_{HHMMSS}/   → the customer list file used for that run
+│   └── eod/
+│       └── {date-or-range}_{HHMMSS}/   → the 3 source CSVs used for that run
 ├── src/
 │   ├── config.py              → all settings in one place (paths, AGENT_ID, timezone, filename templates, required headers)
 │   ├── validators.py          → validates date CLI args (--start-date/--end-date, --as-of-date)
 │   ├── filename_dates.py      → parses exp_date out of a .txt customer-list filename (Priority List mode)
 │   ├── data_loader.py         → auto-discovers input files by column headers; validates required headers are present
+│   ├── archiver.py            → moves processed input files into archive/ after a successful run
 │   ├── progress.py            → spinning "loading..." animation in the terminal
 │   ├── preprocessing.py       → cleans data, parses JSON, filters to one agent, joins 3 sources (EOD mode)
 │   ├── call_detail.py         → builds the "Call Detail Log" sheet (one row per call)
@@ -169,6 +178,13 @@ output folder — a 4-sheet diagnostics report (Join Summary, Field
 Completeness, Calculation Audit, Data Quality Issues) covering that same
 period's source data.
 
+**Input archiving:** once both files above have been written successfully,
+the 3 source CSVs used for that run are moved out of `data/eod/` into
+`archive/eod/{date-or-range}_{HHMMSS}/`, so `data/eod/` is empty and ready
+for the next drop. If the run fails or exits early (no data found, missing
+headers, etc.), the input files are left in place untouched so you can fix
+and re-run without digging through the archive.
+
 ### Mode 2: Priority List (`--mode priority-list`)
 
 ```bash
@@ -223,6 +239,14 @@ Three input formats are accepted, all normalizing to the same `+63XXXXXXXXXX`:
   Jul 22, `exp_date` Jul 24 → `3`)
 - `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
   (3 sheets: Summary, Invalid Data, Expired Numbers)
+
+**Input archiving:** once both files above have been written successfully,
+the customer list file used for that run is moved out of
+`data/customer_list/` into `archive/customer_list/{date}_{HHMMSS}/`, so
+`data/customer_list/` is empty and ready for the next drop. This only
+applies when the file was auto-discovered — if you used `--input` to point
+at a file elsewhere, it's left where it is. If the run fails or exits early,
+the input file is left in place untouched.
 
 **Validation rules** (applied to every record):
 

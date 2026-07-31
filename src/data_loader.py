@@ -131,6 +131,12 @@ def _validate_eod_headers(role: str, columns: set, filename: str):
         raise MissingHeaderError("\n".join(msg_lines))
 
 
+def discover_eod_file_paths() -> dict:
+    """Public: {role: Path} for the EOD input files currently matched in
+    data/eod/. Used after a successful run to know what to archive."""
+    return {role: info["path"] for role, info in _discover_eod_files().items()}
+
+
 def load_all() -> dict:
     """
     Discover, validate, and load all 3 EOD input CSVs.

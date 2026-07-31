@@ -20,7 +20,7 @@ import sys
 
 import pandas as pd
 
-from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report, prior_day
+from src import config, preprocessing, call_detail, eod_report, excel_writer, validators, customer_list, data_loader, validation_report, prior_day, archiver
 from src.data_loader import MissingInputFileError, MissingHeaderError
 from src.filename_dates import UnparsableFilenameDateError
 
@@ -127,6 +127,13 @@ def run_eod(agent_id: int, start_date=None, end_date=None):
     excel_writer.write_validation_report(val_sheets, val_path)
     print(f"Validation report generated: {val_path}")
 
+    # 8. Archive the processed input files so data/eod/ is ready for the next drop.
+    run_time = datetime.datetime.now()
+    matched_paths = data_loader.discover_eod_file_paths()
+    archive_dir = config.get_eod_archive_dir(start_date, end_date, run_time)
+    archiver.archive_files(list(matched_paths.values()), archive_dir)
+    print(f"Input files archived to: {archive_dir}")
+
     return report_path
 
 
@@ -207,6 +214,14 @@ def run_priority_list(as_of_date=None, input_path=None):
     }
     excel_writer.write_validation_report(sheets, validation_path, date_columns=["exp_date"])
     print(f"Validation report generated: {validation_path}")
+
+    # 7. Archive the input file (only if it was auto-discovered, not an
+    #    explicit --input override) so data/customer_list/ is ready for next time.
+    if input_path is None:
+        run_time = datetime.datetime.now()
+        archive_dir = config.get_customer_list_archive_dir(as_of_date, run_time)
+        archiver.archive_files([path], archive_dir)
+        print(f"Input file archived to: {archive_dir}")
 
     return priority_path
 
