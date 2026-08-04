@@ -77,6 +77,36 @@ def get_eod_output_dir(start_date, end_date):
     return EOD_OUTPUT_DIR / folder_name
 
 
+# Each run within a date folder gets its own time-stamped subfolder, so
+# reruns for the same date never mix their files together.
+def get_eod_run_output_dir(start_date, end_date, run_time):
+    return get_eod_output_dir(start_date, end_date) / f"{run_time:%H-%M-%S}"
+
+
+def get_customer_list_run_output_dir(as_of_date, run_time):
+    return CUSTOMER_LIST_OUTPUT_DIR / str(as_of_date) / f"{run_time:%H-%M-%S}"
+
+
+# ── Input archiving ────────────────────────────────────────────────
+# After a successful run, processed input files are moved out of data/eod/
+# and data/customer_list/ into dated folders here, so the input folder
+# empties out and is ready for the next drop. Folder names combine the
+# report's business date (matching the output folder above) with the
+# run's clock time, so re-runs never collide or overwrite each other.
+ARCHIVE_DIR = BASE_DIR / "archive"
+EOD_ARCHIVE_DIR = ARCHIVE_DIR / "eod"
+CUSTOMER_LIST_ARCHIVE_DIR = ARCHIVE_DIR / "customer_list"
+
+
+def get_eod_archive_dir(start_date, end_date, run_time):
+    folder_name = str(start_date) if start_date == end_date else f"{start_date}_to_{end_date}"
+    return EOD_ARCHIVE_DIR / f"{folder_name}_{run_time:%H%M%S}"
+
+
+def get_customer_list_archive_dir(as_of_date, run_time):
+    return CUSTOMER_LIST_ARCHIVE_DIR / f"{as_of_date}_{run_time:%H%M%S}"
+
+
 # ── Timezone ──────────────────────────────────────────────────────
 # Source timestamps are epoch millis (UTC). Plan requires PHT (UTC+8).
 TIMEZONE = "Asia/Manila"
