@@ -15,13 +15,13 @@ import pandas as pd
 
 def compute_days_remaining(exp_date, as_of_date):
     """
-    Days remaining counting as_of_date itself as day 1 (e.g. today Jul 22,
-    exp_date Jul 24 -> 3). Zero or negative once exp_date is in the past.
+    Plain calendar-day difference (e.g. today Jul 22, exp_date Jul 24 -> 2).
+    Zero or negative once exp_date is in the past (or is today).
     """
     if pd.isna(exp_date):
         return None
     exp = exp_date.date() if hasattr(exp_date, "date") else exp_date
-    return (exp - as_of_date).days + 1
+    return (exp - as_of_date).days
 
 
 # ── Validation helpers ─────────────────────────────────────────────

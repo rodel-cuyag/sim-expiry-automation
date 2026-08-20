@@ -5,7 +5,7 @@ Generates one of two reports:
 - **EOD Report** — a 2-sheet Excel workbook (**EOD Report** + **Call Detail
   Log**) from 3 raw source CSVs (`conversations`, `kpi_results`,
   `twilio_webhook_events`), filtered to a single agent and a calling-day
-  range. Also writes a companion **4-sheet Validation Report** workbook
+  range. Also writes a companion **5-sheet Validation Report** workbook
   alongside it (join/data-quality diagnostics for that same run).
 
 - **Priority List** — produces one CSV and one Excel workbook from the
@@ -84,7 +84,7 @@ Generates one of two reports:
 |---|---|
 | Python 3.10+ | Core language |
 | `pandas` | CSV loading, cleaning, joining, aggregation |
-| `openpyxl` | Writing formatted Excel workbooks (EOD Report: 2-sheet, EOD Validation Report: 4-sheet, Priority List Validation Report: 3-sheet) |
+| `openpyxl` | Writing formatted Excel workbooks (EOD Report: 2-sheet, EOD Validation Report: 5-sheet, Priority List Validation Report: 3-sheet) |
 | `pandas.to_csv` | Writing the Priority List CSV |
 | VS Code + Python extension | Editor / debugger |
 | `venv` (built into Python, no separate install) | Isolated dependency environment |
@@ -128,8 +128,9 @@ sim_expiry_automation/
 │   ├── preprocessing.py       → cleans data, parses JSON, filters to one agent, joins 3 sources (EOD mode)
 │   ├── call_detail.py         → builds the "Call Detail Log" sheet (one row per call)
 │   ├── eod_report.py          → builds the "EOD Report" sheet (aggregated summary)
+│   ├── prior_day.py           → best-effort reads back yesterday's saved EOD workbook to fill in the Yesterday/Δ columns (single-day runs only)
 │   ├── customer_list.py       → builds the Priority List + validates/categorizes records (valid, invalid, expired); normalizes phone numbers to +63XXXXXXXXXX
-│   ├── validation_report.py   → builds the EOD mode's 4-sheet Validation Report (Join Summary, Field Completeness, Calculation Audit, Data Quality Issues)
+│   ├── validation_report.py   → builds the EOD mode's 5-sheet Validation Report (Join Summary, Field Completeness, Calculation Audit, Data Quality Issues, Duplicate Contacts)
 │   └── excel_writer.py        → writes DataFrames to formatted .xlsx (EOD Report, EOD Validation Report, Priority List Validation Report) and the Priority List to .csv
 ├── main.py                    → entry point; dispatches to run_eod() or run_priority_list() based on --mode
 ├── requirements.txt           → pandas, openpyxl
@@ -168,19 +169,25 @@ same date-or-range.
 
 **Report structure:** the workbook has 2 sheets. **EOD Report** is a
 dashboard-style summary — one row per metric for the whole period (not one
-row per day) — with a Today/Yesterday/Δ comparison table; the Yesterday/Δ
-columns and the "Day X of 14" subtitle are left as placeholders since the
-pipeline doesn't track prior-day report data. Cells that need a human to
-fill them in day-to-day (FinOps, issues/changes) are highlighted yellow.
-**Call Detail Log** lists every call in the period with a
-`Call Date (PHT)` column so you can still see which day each row belongs
+row per day) — with a Today/Yesterday/Δ comparison table. For single-day
+runs, **Yesterday** is best-effort filled in by reading back the previous
+day's already-generated EOD workbook (see `src/prior_day.py`) — it degrades
+to blank if no prior report exists for that date, or it can't be read.
+**Δ** becomes a live Excel formula for any row where Yesterday got
+populated. Multi-day (range) runs don't get a prior-day lookup, since
+"yesterday" isn't well-defined for a range — those columns stay blank.
+The "Day X of 14" subtitle is left as a placeholder, since the pipeline
+doesn't track which day of the campaign a run corresponds to. Cells that
+need a human to fill them in day-to-day (FinOps, issues/changes) are
+highlighted yellow. **Call Detail Log** lists every call in the period with
+a `Call Date (PHT)` column so you can still see which day each row belongs
 to.
 
 **Also generated:** a companion `SIM_Expiry_EOD_Validation_{agent_id}_{date}.xlsx`
 workbook is written alongside the EOD Report on every run, in the same
-output folder — a 4-sheet diagnostics report (Join Summary, Field
-Completeness, Calculation Audit, Data Quality Issues) covering that same
-period's source data.
+output folder — a 5-sheet diagnostics report (Join Summary, Field
+Completeness, Calculation Audit, Data Quality Issues, Duplicate Contacts)
+covering that same period's source data.
 
 **Input archiving:** once both files above have been written successfully,
 the 3 source CSVs used for that run are moved out of `data/eod/` into
@@ -240,8 +247,8 @@ subfolder, with a further run-time-stamped subfolder per run):
   `days_remaining > 0` (no upper cutoff), with `customer_phone` normalized
   to `+63XXXXXXXXXX`, sorted by `days_remaining` ascending (most urgent first);
   includes a `ref_id` column (constant value from `config.CUSTOMER_LIST_REF_ID`, currently `GOCUC10`).
-  `days_remaining` counts the as-of date itself as day 1 (e.g. as-of date
-  Jul 22, `exp_date` Jul 24 → `3`)
+  `days_remaining` is a plain calendar-day difference (e.g. as-of date
+  Jul 22, `exp_date` Jul 24 → `2`)
 - `SIM_Expiry_Validation_Report_{date}.xlsx` — data validation + categorization
   (3 sheets: Summary, Invalid Data, Expired Numbers)
 
