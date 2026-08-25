@@ -33,7 +33,7 @@ def _call_completed_display(value):
 def _agreed_to_keep_sim(row):
     """Yes/No/N/A based on the KPI-derived sim_retention_success flag."""
     value = row.get("sim_retention_success")
-    if pd.isna(value):
+    if pd.isna(value) or (isinstance(value, str) and value.strip().upper() == "NA"):
         return "N/A"
     return "Yes" if bool(value) else "No"
 
