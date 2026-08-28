@@ -63,7 +63,7 @@ Generates one of two reports:
 
 8. **Run it**
 ```bash
-   python main.py --mode eod --agent-id 1060                             # EOD mode, most recent date
+   python main.py --mode eod --agent-id 1060                             # EOD mode, today (PHT)
    python main.py --mode priority-list                                   # Priority List mode, as-of today (PHT)
    python main.py --mode priority-list --as-of-date 2026-07-10           # Priority List, specific date
    python main.py --mode priority-list --input path/to/other.xlsx        # Priority List, override input file
@@ -150,14 +150,15 @@ Choose a mode with `--mode` (required — either `eod` or `priority-list`):
 ### Mode 1: EOD Report (`--mode eod`)
 
 ```bash
-python main.py --mode eod --agent-id 1060                                             # most recent date
+python main.py --mode eod --agent-id 1060                                             # today (PHT)
 python main.py --mode eod --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29     # a date range
 python main.py --mode eod --agent-id 1060 --start-date 2026-06-29 --end-date 2026-06-29     # a single day (range of 1)
 ```
 
 - `--start-date` / `--end-date`: inclusive range in `YYYY-MM-DD`. Must be
-  given together (or both omitted — defaults to the most recent single day
-  in the data). Start cannot be after end.
+  given together, or both omitted — omitting both defaults to **today
+  (PHT)**, and the run stops with "No calls found ... Nothing to report" if
+  there are no calls for today. Start cannot be after end.
 - `--agent-id`: required for `--mode eod`. No default — the run fails with
   an error if omitted.
 

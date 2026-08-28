@@ -6,7 +6,7 @@ Entry point. Run this file to generate either:
   - Mode 2 "priority-list": SIM Expiry Priority List workbook
 
 Usage:
-    python main.py --mode eod --agent-id 1060                                                       # EOD mode, most recent date
+    python main.py --mode eod --agent-id 1060                                                       # EOD mode, today (PHT)
     python main.py --mode eod --agent-id 1060 --start-date 2026-06-25 --end-date 2026-06-29         # EOD mode, a date range
 
     python main.py --mode priority-list                                  # Priority List mode, as-of today (PHT)
@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument(
         "--start-date", type=str, default=None,
         help="[eod mode] Start of the report period, format YYYY-MM-DD. Must be given together with --end-date. "
-             "Omit both to default to the most recent single day found in the data.",
+             "Omit both to default to today (PHT).",
     )
     parser.add_argument(
         "--end-date", type=str, default=None,
