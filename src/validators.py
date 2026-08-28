@@ -35,8 +35,8 @@ def parse_date_range(start_str: str, end_str: str):
 
     Rules:
       - Both must be given together, or neither (neither means "default
-        to the most recent day found in the data" — resolved later in
-        main.py once the data is loaded).
+        to today in PHT" — resolved in main.py, which then errors out if
+        there are no calls for that day).
       - Both must be valid YYYY-MM-DD dates.
       - start_date must be <= end_date.
 
@@ -46,7 +46,7 @@ def parse_date_range(start_str: str, end_str: str):
     if (start_str is None) != (end_str is None):
         raise InvalidDateRangeError(
             "--start-date and --end-date must be given together. "
-            "Provide both, or omit both to default to the most recent day in the data."
+            "Provide both, or omit both to default to today (PHT)."
         )
 
     if start_str is None and end_str is None:
